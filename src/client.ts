@@ -1,53 +1,16 @@
 import type { Address, Hex, PublicClient, WalletClient } from "viem";
-import { AssetABI, AssetRegistryABI } from "./abis";
-
-export interface OcrSdkConfig {
-  /** Onchain read client (required). */
-  publicClient: PublicClient;
-  /** Onchain write client (optional if you only read). */
-  walletClient?: WalletClient;
-  /** AssetRegistry address for the current network. */
-  registryAddress: Address;
-  /** Optional indexer GraphQL endpoint. */
-  indexerUrl?: string;
-}
-
-export interface AccessCheckParams {
-  /** bytes32 asset id hash (e.g. `assetIdHash` from deployments JSON). */
-  assetId: Hex;
-  /** EOA address of the user/subscriber. */
-  user: Address;
-  /** Prefer using the indexer when available. */
-  source?: "auto" | "onchain" | "indexer";
-}
-
-export interface SubscriptionStatus {
-  isActive: boolean;
-  startTime?: bigint;
-  endTime?: bigint;
-  nonce?: bigint;
-}
-
-export interface SubscribeWithPermitParams {
-  assetId: Hex;
-  /** Permit signer / payer. */
-  owner: Address;
-  value: bigint;
-  deadline: bigint;
-  v: number;
-  r: Hex;
-  s: Hex;
-}
-
-export interface ClaimCreatorFeeParams {
-  assetAddress: Address;
-  subscriber: Address;
-}
-
-export interface ManageSubscriptionParams {
-  assetAddress: Address;
-  subscriber: Address;
-}
+import { AssetABI } from "./config/AssetABI";
+import { AssetRegistryABI } from "./config/AssetRegistryABI";
+import type {
+  AccessCheckParams,
+  AssetLookupParams,
+  ClaimCreatorFeeParams,
+  ManageSubscriptionParams,
+  OcrSdkConfig,
+  OnchainAccessCheckParams,
+  SubscribeParams,
+  SubscriptionStatus,
+} from "./types";
 
 export class OcrSdk {
   private readonly publicClient: PublicClient;
@@ -77,20 +40,46 @@ export class OcrSdk {
     return this.getSubscriptionOnchain(params);
   }
 
+  /**
+   * Onchain lookup for an asset's contract address by id.
+   * This is useful when you want to call `Asset` methods (e.g. fee claims) and only have an `assetId`.
+   */
+  async getAssetAddress(params: AssetLookupParams): Promise<Address> {
+    return (await this.publicClient.readContract({
+      address: this.registryAddress,
+      abi: AssetRegistryABI,
+      functionName: "getAsset",
+      args: [params.assetId],
+    })) as Address;
+  }
+
+  /** Onchain access check: whether the subscription is currently active. */
+  async isSubscriptionActiveOnchain(params: OnchainAccessCheckParams): Promise<boolean> {
+    return (await this.publicClient.readContract({
+      address: this.registryAddress,
+      abi: AssetRegistryABI,
+      functionName: "isSubscriptionActive",
+      args: [params.assetId, params.user],
+    })) as boolean;
+  }
+
+  /**
+   * Onchain subscription expiry timestamp (seconds since epoch), as stored in the registry.
+   * Note: this returns the raw registry value; use `isSubscriptionActiveOnchain` for an "active right now" check.
+   */
+  async getSubscriptionEndTimeOnchain(params: OnchainAccessCheckParams): Promise<bigint> {
+    return (await this.publicClient.readContract({
+      address: this.registryAddress,
+      abi: AssetRegistryABI,
+      functionName: "getSubscription",
+      args: [params.assetId, params.user],
+    })) as bigint;
+  }
+
   async getSubscriptionOnchain(params: AccessCheckParams): Promise<SubscriptionStatus> {
     const [isActive, expiry] = await Promise.all([
-      this.publicClient.readContract({
-        address: this.registryAddress,
-        abi: AssetRegistryABI,
-        functionName: "isSubscriptionActive",
-        args: [params.assetId, params.user],
-      }) as Promise<boolean>,
-      this.publicClient.readContract({
-        address: this.registryAddress,
-        abi: AssetRegistryABI,
-        functionName: "getSubscription",
-        args: [params.assetId, params.user],
-      }) as Promise<bigint>,
+      this.isSubscriptionActiveOnchain({ assetId: params.assetId, user: params.user }),
+      this.getSubscriptionEndTimeOnchain({ assetId: params.assetId, user: params.user }),
     ]);
 
     return { isActive, endTime: expiry };
@@ -138,17 +127,12 @@ export class OcrSdk {
     };
   }
 
-  async subscribeWithPermit(params: SubscribeWithPermitParams) {
+  async subscribe(params: SubscribeParams) {
     if (!this.walletClient) throw new Error("walletClient is required");
     const account = this.walletClient.account;
     if (!account) throw new Error("walletClient.account is not set");
 
-    const assetAddress = (await this.publicClient.readContract({
-      address: this.registryAddress,
-      abi: AssetRegistryABI,
-      functionName: "getAsset",
-      args: [params.assetId],
-    })) as Address;
+    const assetAddress = await this.getAssetAddress({ assetId: params.assetId });
 
     return this.walletClient.writeContract({
       address: this.registryAddress,
@@ -215,7 +199,4 @@ export class OcrSdk {
   }
 }
 
-export function createOcrSdk(config: OcrSdkConfig): OcrSdk {
-  return new OcrSdk(config);
-}
 
