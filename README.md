@@ -1,6 +1,6 @@
 # Open Creator Rails SDK
 
-TypeScript SDK for interacting with Open Creator Rails contracts and (optionally) the Ponder indexer.
+TypeScript SDK for interacting with Open Creator Rails
 
 ## Install
 
