@@ -1,0 +1,23 @@
+{
+  "name": "@open-creator-rails/sdk",
+  "version": "0.1.0",
+  "description": "TypeScript SDK for interacting with Open Creator Rails contracts and indexer.",
+  "type": "module",
+  "sideEffects": false,
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit"
+  },
+  "dependencies": {
+    "viem": "^2.21.3"
+  },
+  "devDependencies": {
+    "typescript": "^5.3.2"
+  }
+}
+
