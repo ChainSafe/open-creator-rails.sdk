@@ -11,6 +11,7 @@ import type {
   SubscribeParams,
   SubscriptionStatus,
 } from "./types";
+import { subscriberToId } from "./utils";
 
 export class OcrSdk {
   private readonly publicClient: PublicClient;
@@ -59,7 +60,7 @@ export class OcrSdk {
       address: this.registryAddress,
       abi: AssetRegistryABI,
       functionName: "isSubscriptionActive",
-      args: [params.assetId, params.user],
+      args: [params.assetId, subscriberToId(params.user)],
     })) as boolean;
   }
 
@@ -72,7 +73,7 @@ export class OcrSdk {
       address: this.registryAddress,
       abi: AssetRegistryABI,
       functionName: "getSubscription",
-      args: [params.assetId, params.user],
+      args: [params.assetId, subscriberToId(params.user)],
     })) as bigint;
   }
 
@@ -91,7 +92,9 @@ export class OcrSdk {
   }): Promise<SubscriptionStatus | null> {
     if (!this.indexerUrl) throw new Error("indexerUrl is not configured");
 
-    const id = `${params.assetId.toLowerCase()}_${params.user.toLowerCase()}`;
+    const subscriberId = subscriberToId(params.user);
+    const assetAddress = await this.getAssetAddress({ assetId: params.assetId });
+    const id = `${assetAddress.toLowerCase()}_${subscriberId.toLowerCase()}`;
 
     const query = `
       query Subscription($id: String!) {
@@ -133,6 +136,7 @@ export class OcrSdk {
     if (!account) throw new Error("walletClient.account is not set");
 
     const assetAddress = await this.getAssetAddress({ assetId: params.assetId });
+    const subscriberId = subscriberToId(params.owner);
 
     return this.walletClient.writeContract({
       address: this.registryAddress,
@@ -142,8 +146,9 @@ export class OcrSdk {
       account,
       args: [
         params.assetId,
-        params.owner,
-        assetAddress,
+        subscriberId,
+        params.owner, // payer
+        assetAddress, // spender must be the asset contract address
         params.value,
         params.deadline,
         params.v,
@@ -164,7 +169,7 @@ export class OcrSdk {
       functionName: "claimCreatorFee",
       chain: this.walletClient.chain ?? null,
       account,
-      args: [params.subscriber],
+      args: [subscriberToId(params.subscriber)],
     });
   }
 
@@ -179,7 +184,7 @@ export class OcrSdk {
       functionName: "revokeSubscription",
       chain: this.walletClient.chain ?? null,
       account,
-      args: [params.subscriber],
+      args: [subscriberToId(params.subscriber)],
     });
   }
 
@@ -194,9 +199,7 @@ export class OcrSdk {
       functionName: "cancelSubscription",
       chain: this.walletClient.chain ?? null,
       account,
-      args: [params.subscriber],
+      args: [subscriberToId(params.subscriber)],
     });
   }
 }
-
-
