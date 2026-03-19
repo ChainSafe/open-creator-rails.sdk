@@ -111,6 +111,15 @@ async function startAnvil() {
         resolve();
       }
     }, 50);
+
+    // If `anvil` isn't available on PATH (e.g. missing Foundry in CI), Node emits an `error` event.
+    // Handle it here so Vitest fails the test deterministically instead of reporting an unhandled exception.
+    proc.on("error", (err) => {
+      clearTimeout(timeout);
+      clearInterval(interval);
+      reject(err);
+    });
+
     proc.on("exit", (code) => {
       clearTimeout(timeout);
       clearInterval(interval);
