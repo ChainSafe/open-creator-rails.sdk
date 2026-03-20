@@ -94,14 +94,25 @@ jobs:
       - name: Install Foundry
         run: |
           curl -L https://foundry.paradigm.xyz | bash
-          export PATH="$HOME/.foundry/bin:$PATH"
-          # Ensure toolchain binaries (including `anvil`) are present.
-          foundryup
+          # `foundry.paradigm.xyz` installs `foundryup`, but it may not be on PATH
+          # in the current GH Actions shell session.
+          export PATH="$HOME/.foundry/bin:$HOME/.cargo/bin:$HOME/.local/bin:$PATH"
+          if [ -x "$HOME/.foundry/bin/foundryup" ]; then
+            "$HOME/.foundry/bin/foundryup"
+          elif [ -x "$HOME/.cargo/bin/foundryup" ]; then
+            "$HOME/.cargo/bin/foundryup"
+          elif [ -x "$HOME/.local/bin/foundryup" ]; then
+            "$HOME/.local/bin/foundryup"
+          else
+            echo "foundryup binary not found after install" >&2
+            ls -la "$HOME/.foundry/bin" "$HOME/.cargo/bin" "$HOME/.local/bin" 2>/dev/null || true
+            exit 1
+          fi
           echo "$HOME/.foundry/bin" >> $GITHUB_PATH
 
       - name: Run integration tests
         run: |
-          export PATH="$HOME/.foundry/bin:$PATH"
+          export PATH="$HOME/.foundry/bin:$HOME/.cargo/bin:$PATH"
           command -v anvil
           anvil --version
           npm run test:integration
