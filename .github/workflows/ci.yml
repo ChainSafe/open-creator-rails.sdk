@@ -92,53 +92,15 @@ jobs:
         run: npm ci
 
       - name: Install Foundry
-        shell: bash
-        run: |
-          set -e
-          curl -L https://foundry.paradigm.xyz | bash
-          # The installer may only update PATH in `~/.bashrc` (per its own output).
-          # In GitHub Actions, that file isn't sourced automatically in the current shell.
-          # shellcheck disable=SC1090
-          if [ -f "$HOME/.bashrc" ]; then . "$HOME/.bashrc"; fi
-
-          # Ensure Foundry toolchain binaries are on PATH for the remainder of this step.
-          export PATH="$HOME/.foundry/bin:$HOME/.cargo/bin:$HOME/.local/bin:$PATH"
-
-          # Run `foundryup` from a known install location so we don't depend on shell PATH.
-          # (If `foundryup` isn't found in PATH, we currently fail with "command not found".)
-          foundryup_bin=""
-          if [ -f "$HOME/.foundry/bin/foundryup" ]; then
-            foundryup_bin="$HOME/.foundry/bin/foundryup"
-          elif [ -f "$HOME/.cargo/bin/foundryup" ]; then
-            foundryup_bin="$HOME/.cargo/bin/foundryup"
-          elif [ -f "$HOME/.local/bin/foundryup" ]; then
-            foundryup_bin="$HOME/.local/bin/foundryup"
-          fi
-
-          if [ -n "$foundryup_bin" ]; then
-            "$foundryup_bin"
-          else
-            echo "foundryup not found after installer" >&2
-            echo "HOME=$HOME" >&2
-            echo "PATH=$PATH" >&2
-            command -v foundryup >&2 || true
-            ls -la "$HOME/.foundry/bin" >&2 || true
-            ls -la "$HOME/.cargo/bin" >&2 || true
-            ls -la "$HOME/.local/bin" >&2 || true
-            exit 1
-          fi
-
-          # Verify toolchain binaries required by the integration tests.
-          if [ ! -x "$HOME/.foundry/bin/anvil" ] || [ ! -x "$HOME/.foundry/bin/forge" ]; then
-            echo "Required Foundry binaries missing after install" >&2
-            exit 1
-          fi
-
-          echo "$HOME/.foundry/bin" >> $GITHUB_PATH
+        uses: foundry-rs/foundry-toolchain@v1
+        with:
+          version: "stable"
+          cache: true
 
       - name: Run integration tests
         run: |
           export PATH="$HOME/.foundry/bin:$HOME/.cargo/bin:$PATH"
           anvil --version
+          forge --version
           npm run test:integration
 
