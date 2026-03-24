@@ -12,13 +12,19 @@
   "scripts": {
     "build": "tsc -p tsconfig.json",
     "typecheck": "tsc -p tsconfig.json --noEmit",
-    "test": "vitest"
+    "lint": "eslint . --ext .ts --max-warnings=0",
+    "test": "vitest run src/test/unit",
+    "test:integration": "RUN_INTEGRATION_TESTS=1 vitest run src/test/integration"
   },
   "dependencies": {
     "viem": "^2.21.3"
   },
   "devDependencies": {
+    "@eslint/js": "^10.0.1",
     "@types/node": "^25.5.0",
+    "@typescript-eslint/eslint-plugin": "^8.57.1",
+    "@typescript-eslint/parser": "^8.57.1",
+    "eslint": "^10.0.3",
     "typescript": "^5.3.2",
     "vitest": "^4.1.0"
   }
