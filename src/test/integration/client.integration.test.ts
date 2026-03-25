@@ -414,5 +414,123 @@ describeIntegration("OcrSdk integration (anvil + real contracts)", () => {
 
     expect(afterBalance).toBeGreaterThan(beforeBalance);
   }, 60_000);
+
+  it("supports AssetRegistry namespaced reads/writes", async () => {
+    if (!anvil) throw new Error("Integration environment not initialized");
+
+    const chain = {
+      id: TEST_CHAIN_ID,
+      name: "anvil",
+      nativeCurrency: { name: "ETH", symbol: "ETH", decimals: 18 },
+      rpcUrls: { default: { http: [anvil.rpcUrl] } },
+    } as any;
+
+    const walletRegistryOwner = createWalletClient({
+      chain,
+      transport: http(anvil.rpcUrl),
+      account: privateKeyToAccount(registryOwner.privateKey),
+    }) as any;
+
+    const sdkRegistryOwner = new OcrSdk({
+      publicClient: publicClient as any,
+      walletClient: walletRegistryOwner as any,
+      registryAddress,
+    } as any);
+
+    const exists = await sdkRegistryOwner.AssetRegistry.viewAsset({ assetId: ASSET_ID });
+    expect(exists).toBe(true);
+
+    const assetFromRegistry = await sdkRegistryOwner.AssetRegistry.getAsset({ assetId: ASSET_ID });
+    expect(assetFromRegistry.toLowerCase()).toBe(assetAddress.toLowerCase());
+
+    const beforeShares = await sdkRegistryOwner.AssetRegistry.getFeeShares();
+    expect(beforeShares.totalFeeShare).toBe(100n);
+    expect(beforeShares.creatorFeeShare).toBe(70n);
+    expect(beforeShares.registryFeeShare).toBe(30n);
+
+    await sdkRegistryOwner.AssetRegistry.updateCreatorFeeShare({ creatorFeeShare: 60n });
+    await sdkRegistryOwner.AssetRegistry.updateRegistryFeeShare({ registryFeeShare: 40n });
+
+    const afterShares = await sdkRegistryOwner.AssetRegistry.getFeeShares();
+    expect(afterShares.totalFeeShare).toBe(100n);
+    expect(afterShares.creatorFeeShare).toBe(60n);
+    expect(afterShares.registryFeeShare).toBe(40n);
+
+    // restore original values for test isolation
+    await sdkRegistryOwner.AssetRegistry.updateCreatorFeeShare({ creatorFeeShare: 70n });
+    await sdkRegistryOwner.AssetRegistry.updateRegistryFeeShare({ registryFeeShare: 30n });
+  }, 60_000);
+
+  it("supports Asset namespaced reads/writes", async () => {
+    if (!anvil) throw new Error("Integration environment not initialized");
+
+    const chain = {
+      id: TEST_CHAIN_ID,
+      name: "anvil",
+      nativeCurrency: { name: "ETH", symbol: "ETH", decimals: 18 },
+      rpcUrls: { default: { http: [anvil.rpcUrl] } },
+    } as any;
+
+    const walletAssetOwner = createWalletClient({
+      chain,
+      transport: http(anvil.rpcUrl),
+      account: privateKeyToAccount(assetOwner.privateKey),
+    }) as any;
+
+    const sdkAssetOwner = new OcrSdk({
+      publicClient: publicClient as any,
+      walletClient: walletAssetOwner as any,
+      registryAddress,
+    } as any);
+
+    const assetOwnerOnchain = await sdkAssetOwner.Asset.owner({ assetAddress });
+    expect(assetOwnerOnchain.toLowerCase()).toBe(assetOwner.address.toLowerCase());
+
+    const tokenOnAsset = await sdkAssetOwner.Asset.getTokenAddress({ assetAddress });
+    expect(tokenOnAsset.toLowerCase()).toBe(tokenAddress.toLowerCase());
+
+    const registryOnAsset = await sdkAssetOwner.Asset.getRegistryAddress({ assetAddress });
+    expect(registryOnAsset.toLowerCase()).toBe(registryAddress.toLowerCase());
+
+    const subscriptionPriceForOneSecond = await sdkAssetOwner.Asset.getSubscriptionPrice({
+      assetAddress,
+      duration: 1n,
+    });
+    expect(subscriptionPriceForOneSecond).toBe(subscriptionPrice);
+
+    const beforePriceForTwoSeconds = await sdkAssetOwner.Asset.getSubscriptionPrice({
+      assetAddress,
+      duration: 2n,
+    });
+
+    await sdkAssetOwner.Asset.setSubscriptionPrice({
+      assetAddress,
+      newSubscriptionPrice: subscriptionPrice + 1n,
+    });
+
+    const afterPriceForTwoSeconds = await sdkAssetOwner.Asset.getSubscriptionPrice({
+      assetAddress,
+      duration: 2n,
+    });
+    expect(afterPriceForTwoSeconds).toBe(beforePriceForTwoSeconds + 2n);
+
+    // restore original price for test isolation
+    await sdkAssetOwner.Asset.setSubscriptionPrice({
+      assetAddress,
+      newSubscriptionPrice: subscriptionPrice,
+    });
+
+    const payerSubscriptionEnd = await sdkAssetOwner.Asset.getSubscription({
+      assetAddress,
+      subscriber: payer.address,
+    });
+    expect(payerSubscriptionEnd).toBeGreaterThan(0n);
+
+    const payerActive = await sdkAssetOwner.Asset.isSubscriptionActive({
+      assetAddress,
+      subscriber: payer.address,
+    });
+    expect(typeof payerActive).toBe("boolean");
+  }, 60_000);
 });
 

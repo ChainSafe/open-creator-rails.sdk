@@ -8,12 +8,12 @@ TypeScript SDK for interacting with Open Creator Rails
 pnpm add @open-creator-rails/sdk viem
 ```
 
-## Usage
+## Quick start
 
 ```ts
 import { createPublicClient, createWalletClient, http } from "viem";
 import { sepolia } from "viem/chains";
-import { createOcrSdk, sepoliaDeployments } from "@open-creator-rails/sdk";
+import { OcrSdk, sepoliaDeployments } from "@open-creator-rails/sdk";
 
 const registryAddress = sepoliaDeployments[0].address as `0x${string}`;
 
@@ -28,12 +28,70 @@ const walletClient = createWalletClient({
   account: /* your account */,
 });
 
-const sdk = createOcrSdk({
+const sdk = new OcrSdk({
   publicClient,
   walletClient,
   registryAddress,
   indexerUrl: process.env.INDEXER_URL, // optional
 });
+```
+
+## API overview
+
+The SDK exposes:
+
+- **Namespaced contract APIs** 
+  - `sdk.AssetRegistry.*` wraps `AssetRegistry` contract methods
+  - `sdk.Asset.*` wraps `Asset` contract methods
+- **Indexer-aware convenience reads**
+  - Some reads can prefer the indexer and fall back to onchain reads when `indexerUrl` is missing or the indexer is down.
+
+### Namespaced contract usage
+
+```ts
+// AssetRegistry reads
+const assetAddress = await sdk.AssetRegistry.getAsset({ assetId });
+const exists = await sdk.AssetRegistry.viewAsset({ assetId });
+
+// Asset reads
+const owner = await sdk.Asset.owner({ assetAddress });
+const token = await sdk.Asset.getTokenAddress({ assetAddress });
+```
+
+### Write methods (require `walletClient`)
+
+All write methods require `walletClient` in the SDK config and `walletClient.account` to be set.
+
+```ts
+await sdk.AssetRegistry.updateCreatorFeeShare({ creatorFeeShare: 60n });
+await sdk.Asset.setSubscriptionPrice({ assetAddress, newSubscriptionPrice: 123n });
+```
+
+## Indexer support
+
+If you pass `indexerUrl`, the SDK can query indexed state for some reads.
+
+### Source selection
+
+Some methods accept `source?: "auto" | "onchain" | "indexer"`:
+
+- **`"auto"`** (default): try indexer (if configured), then fall back to onchain
+- **`"onchain"`**: only onchain reads
+- **`"indexer"`**: only indexer; throws if the indexer request fails
+
+### Indexer-backed reads
+
+These methods are implemented with indexer-first + fallback behavior:
+
+```ts
+// Subscription status by assetId + user
+const status = await sdk.getSubscriptionStatus({ assetId, user, source: "auto" });
+
+// Subscription status by assetAddress + user
+const status2 = await sdk.Asset.getSubscriptionStatus({ assetAddress, user, source: "auto" });
+
+// Asset owner by assetAddress
+const owner2 = await sdk.Asset.getOwnerStatus({ assetAddress, source: "auto" });
 ```
 
 ## Local Node (Anvil) + SDK Testing
