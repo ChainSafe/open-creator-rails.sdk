@@ -1,0 +1,1 @@
+../../open-creator-rails/packages/config/src/AssetRegistryABI.ts
