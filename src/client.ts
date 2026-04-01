@@ -1,7 +1,7 @@
 import type { Address, Hex, PublicClient, WalletClient } from "viem";
 import { AssetABI } from "./config/AssetABI";
 import { AssetRegistryABI } from "./config/AssetRegistryABI";
-import type { OcrSdkIndexer } from "./types";
+import type { OcrAssetClient, OcrSdkIndexer } from "./types";
 import { createSdkIndexer } from "./indexer";
 import type {
   AccessCheckParams,
@@ -14,36 +14,6 @@ import type {
   SubscriptionStatus,
 } from "./types";
 import { subscriberToId } from "./utils";
-
-export type OcrAssetClient = {
-  address: Address;
-  getAssetId: () => Promise<Hex>;
-  getRegistryAddress: () => Promise<Address>;
-  getTokenAddress: () => Promise<Address>;
-  getSubscriptionPrice: (params: { duration: bigint }) => Promise<bigint>;
-  getSubscription: (params: { subscriber: Address }) => Promise<bigint>;
-  getSubscriptionStatus: (params: { user: Address; source?: "auto" | "onchain" | "indexer" }) => Promise<SubscriptionStatus>;
-  isSubscriptionActive: (params: { subscriber: Address }) => Promise<boolean>;
-  owner: () => Promise<Address>;
-  getOwner: (params: { source?: "auto" | "onchain" | "indexer" }) => Promise<Address>;
-  subscribe: (params: {
-    subscriber: Address;
-    payer: Address;
-    spender: Address;
-    value: bigint;
-    deadline: bigint;
-    v: number;
-    r: Hex;
-    s: Hex;
-  }) => Promise<Hex>;
-  claimCreatorFee: (params: Omit<ClaimCreatorFeeParams, "assetAddress">) => Promise<Hex>;
-  claimRegistryFee: (params: Omit<ManageSubscriptionParams, "assetAddress">) => Promise<Hex>;
-  revokeSubscription: (params: Omit<ManageSubscriptionParams, "assetAddress">) => Promise<Hex>;
-  cancelSubscription: (params: Omit<ManageSubscriptionParams, "assetAddress">) => Promise<Hex>;
-  setSubscriptionPrice: (params: { newSubscriptionPrice: bigint }) => Promise<Hex>;
-  transferOwnership: (params: { newOwner: Address }) => Promise<Hex>;
-  renounceOwnership: () => Promise<Hex>;
-};
 
 export class OcrSdk {
   private readonly publicClient: PublicClient;
