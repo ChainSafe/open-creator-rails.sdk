@@ -1,6 +1,8 @@
 import type { Address, Hex, PublicClient, WalletClient } from "viem";
 import { AssetABI } from "./config/AssetABI";
 import { AssetRegistryABI } from "./config/AssetRegistryABI";
+import type { OcrSdkIndexer } from "./types";
+import { createSdkIndexer } from "./indexer";
 import type {
   AccessCheckParams,
   AssetLookupParams,
@@ -13,11 +15,42 @@ import type {
 } from "./types";
 import { subscriberToId } from "./utils";
 
+export type OcrAssetClient = {
+  address: Address;
+  getAssetId: () => Promise<Hex>;
+  getRegistryAddress: () => Promise<Address>;
+  getTokenAddress: () => Promise<Address>;
+  getSubscriptionPrice: (params: { duration: bigint }) => Promise<bigint>;
+  getSubscription: (params: { subscriber: Address }) => Promise<bigint>;
+  getSubscriptionStatus: (params: { user: Address; source?: "auto" | "onchain" | "indexer" }) => Promise<SubscriptionStatus>;
+  isSubscriptionActive: (params: { subscriber: Address }) => Promise<boolean>;
+  owner: () => Promise<Address>;
+  getOwner: (params: { source?: "auto" | "onchain" | "indexer" }) => Promise<Address>;
+  subscribe: (params: {
+    subscriber: Address;
+    payer: Address;
+    spender: Address;
+    value: bigint;
+    deadline: bigint;
+    v: number;
+    r: Hex;
+    s: Hex;
+  }) => Promise<Hex>;
+  claimCreatorFee: (params: Omit<ClaimCreatorFeeParams, "assetAddress">) => Promise<Hex>;
+  claimRegistryFee: (params: Omit<ManageSubscriptionParams, "assetAddress">) => Promise<Hex>;
+  revokeSubscription: (params: Omit<ManageSubscriptionParams, "assetAddress">) => Promise<Hex>;
+  cancelSubscription: (params: Omit<ManageSubscriptionParams, "assetAddress">) => Promise<Hex>;
+  setSubscriptionPrice: (params: { newSubscriptionPrice: bigint }) => Promise<Hex>;
+  transferOwnership: (params: { newOwner: Address }) => Promise<Hex>;
+  renounceOwnership: () => Promise<Hex>;
+};
+
 export class OcrSdk {
   private readonly publicClient: PublicClient;
   private readonly walletClient?: WalletClient;
   private readonly registryAddress: Address;
   private readonly indexerUrl?: string;
+  public readonly indexer?: OcrSdkIndexer;
   // Namespaced API: wrappers for AssetRegistry contract methods.
   public readonly AssetRegistry: {
     getAsset: (params: AssetLookupParams) => Promise<Address>;
@@ -66,7 +99,7 @@ export class OcrSdk {
     }) => Promise<SubscriptionStatus>;
     isSubscriptionActive: (params: { assetAddress: Address; subscriber: Address }) => Promise<boolean>;
     owner: (params: { assetAddress: Address }) => Promise<Address>;
-    getOwnerStatus: (params: {
+    getOwner: (params: {
       assetAddress: Address;
       source?: "auto" | "onchain" | "indexer";
     }) => Promise<Address>;
@@ -95,6 +128,7 @@ export class OcrSdk {
     this.walletClient = config.walletClient;
     this.registryAddress = config.registryAddress;
     this.indexerUrl = config.indexerUrl;
+    this.indexer = config.indexerUrl ? createSdkIndexer(config.indexerUrl) : undefined;
     // AssetRegistry namespace bindings.
     this.AssetRegistry = {
       getAsset: (params) => this.getAssetAddress(params),
@@ -130,7 +164,7 @@ export class OcrSdk {
       getSubscriptionStatus: (params) => this.getAssetSubscriptionStatus(params),
       isSubscriptionActive: (params) => this.isAssetSubscriptionActive(params),
       owner: (params) => this.getAssetOwner(params),
-      getOwnerStatus: (params) => this.getAssetOwnerStatus(params),
+      getOwner: (params) => this.getAssetOwnerStatus(params),
       subscribe: (params) => this.subscribeToAsset(params) as Promise<Hex>,
       claimCreatorFee: (params) => this.claimCreatorFee(params) as Promise<Hex>,
       claimRegistryFee: (params) => this.claimRegistryFeeOnAsset(params) as Promise<Hex>,
@@ -154,7 +188,7 @@ export class OcrSdk {
     const source = params.source ?? "auto";
 
     if (source === "indexer" || (source === "auto" && this.indexerUrl)) {
-      if (!this.indexerUrl) throw new Error("indexerUrl is not configured");
+      if (!this.indexerUrl || !this.indexer) throw new Error("indexerUrl is not configured");
       try {
         const fromIndexer = await this.getSubscriptionFromIndexer({
           assetId: params.assetId,
@@ -169,6 +203,38 @@ export class OcrSdk {
     return this.getSubscriptionOnchain(params);
   }
 
+  /**
+   * Returns "asset client" bound to `assetAddress`.
+   */
+  getAsset(params: { assetAddress: Address }): OcrAssetClient {
+    const assetAddress = params.assetAddress;
+    return {
+      address: assetAddress,
+      getAssetId: () => this.Asset.getAssetId({ assetAddress }),
+      getRegistryAddress: () => this.Asset.getRegistryAddress({ assetAddress }),
+      getTokenAddress: () => this.Asset.getTokenAddress({ assetAddress }),
+      getSubscriptionPrice: ({ duration }) => this.Asset.getSubscriptionPrice({ assetAddress, duration }),
+      getSubscription: ({ subscriber }) => this.Asset.getSubscription({ assetAddress, subscriber }),
+      getSubscriptionStatus: ({ user, source }) => this.Asset.getSubscriptionStatus({ assetAddress, user, source }),
+      isSubscriptionActive: ({ subscriber }) => this.Asset.isSubscriptionActive({ assetAddress, subscriber }),
+      owner: () => this.Asset.owner({ assetAddress }),
+      getOwner: ({ source }) => this.Asset.getOwner({ assetAddress, source }),
+      subscribe: (p) => this.Asset.subscribe({ assetAddress, ...p }),
+      claimCreatorFee: (p) => this.Asset.claimCreatorFee({ assetAddress, ...p }),
+      claimRegistryFee: (p) => this.Asset.claimRegistryFee({ assetAddress, ...p }),
+      revokeSubscription: (p) => this.Asset.revokeSubscription({ assetAddress, ...p }),
+      cancelSubscription: (p) => this.Asset.cancelSubscription({ assetAddress, ...p }),
+      setSubscriptionPrice: (p) => this.Asset.setSubscriptionPrice({ assetAddress, ...p }),
+      transferOwnership: (p) => this.Asset.transferOwnership({ assetAddress, ...p }),
+      renounceOwnership: () => this.Asset.renounceOwnership({ assetAddress }),
+    };
+  }
+
+  async getAssetById(params: { assetId: Hex }): Promise<OcrAssetClient> {
+    const assetAddress = await this.getAssetAddress({ assetId: params.assetId });
+    return this.getAsset({ assetAddress });
+  }
+
   // ---------------------------------------------------------------------------
   // Indexer methods
   // ---------------------------------------------------------------------------
@@ -177,7 +243,7 @@ export class OcrSdk {
     assetId: Hex;
     user: Address;
   }): Promise<SubscriptionStatus | null> {
-    if (!this.indexerUrl) throw new Error("indexerUrl is not configured");
+    if (!this.indexer) throw new Error("indexerUrl is not configured");
 
     const subscriberId = subscriberToId(params.user);
     const assetAddress = await this.getAssetAddress({ assetId: params.assetId });
@@ -189,72 +255,19 @@ export class OcrSdk {
     user: Address;
     subscriberId?: Hex;
   }): Promise<SubscriptionStatus | null> {
-    if (!this.indexerUrl) throw new Error("indexerUrl is not configured");
-
+    if (!this.indexer) throw new Error("indexerUrl is not configured");
     const subscriberId = params.subscriberId ?? subscriberToId(params.user);
-    const id = `${params.assetAddress.toLowerCase()}_${subscriberId.toLowerCase()}`;
-
-    const query = `
-      query Subscription($id: String!) {
-        subscription(id: $id) {
-          id
-          startTime
-          endTime
-          nonce
-          isActive
-        }
-      }
-    `;
-
-    const response = await fetch(this.indexerUrl, {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({ query, variables: { id } }),
+    const sub = await this.indexer.getSubscriptionBySubscriberId({
+      assetAddress: params.assetAddress,
+      subscriberId,
     });
-
-    if (!response.ok) {
-      throw new Error(`Indexer request failed with status ${response.status}`);
-    }
-
-    const json = await response.json();
-    const sub = json.data?.subscription;
     if (!sub) return null;
-
-    return {
-      isActive: Boolean(sub.isActive),
-      startTime: BigInt(sub.startTime),
-      endTime: BigInt(sub.endTime),
-      nonce: BigInt(sub.nonce),
-    };
+    return { isActive: sub.isActive, startTime: sub.startTime, endTime: sub.endTime, nonce: sub.nonce };
   }
 
   async getAssetOwnerFromIndexer(params: { assetAddress: Address }): Promise<Address | null> {
-    if (!this.indexerUrl) throw new Error("indexerUrl is not configured");
-
-    const query = `
-      query AssetOwner($id: String!) {
-        assetEntity(id: $id) {
-          id
-          owner
-        }
-      }
-    `;
-    const id = params.assetAddress.toLowerCase();
-
-    const response = await fetch(this.indexerUrl, {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({ query, variables: { id } }),
-    });
-
-    if (!response.ok) {
-      throw new Error(`Indexer request failed with status ${response.status}`);
-    }
-
-    const json = await response.json();
-    const entity = json.data?.assetEntity;
-    if (!entity?.owner) return null;
-    return entity.owner as Address;
+    if (!this.indexer) throw new Error("indexerUrl is not configured");
+    return this.indexer.getAssetOwner({ assetAddress: params.assetAddress });
   }
 
   // ---------------------------------------------------------------------------
@@ -580,7 +593,7 @@ export class OcrSdk {
     const source = params.source ?? "auto";
 
     if (source === "indexer" || (source === "auto" && this.indexerUrl)) {
-      if (!this.indexerUrl) throw new Error("indexerUrl is not configured");
+      if (!this.indexerUrl || !this.indexer) throw new Error("indexerUrl is not configured");
       try {
         const fromIndexer = await this.getSubscriptionFromIndexerByAssetAddress({
           assetAddress: params.assetAddress,
@@ -627,7 +640,7 @@ export class OcrSdk {
     const source = params.source ?? "auto";
 
     if (source === "indexer" || (source === "auto" && this.indexerUrl)) {
-      if (!this.indexerUrl) throw new Error("indexerUrl is not configured");
+      if (!this.indexerUrl || !this.indexer) throw new Error("indexerUrl is not configured");
       try {
         const ownerFromIndexer = await this.getAssetOwnerFromIndexer({ assetAddress: params.assetAddress });
         if (ownerFromIndexer) return ownerFromIndexer;
