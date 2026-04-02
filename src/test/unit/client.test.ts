@@ -986,7 +986,7 @@ describe("OcrSdk full method coverage", () => {
       ok: true,
       json: async () => ({
         data: {
-          assetEntities: {
+          assetEntitys: {
             items: [
               {
                 id: assetAddress,
