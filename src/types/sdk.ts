@@ -11,6 +11,36 @@ export interface OcrSdkConfig {
   indexerUrl?: string;
 }
 
+export type OcrAssetClient = {
+  address: Address;
+  getAssetId: () => Promise<Hex>;
+  getRegistryAddress: () => Promise<Address>;
+  getTokenAddress: () => Promise<Address>;
+  getSubscriptionPrice: (params: { duration: bigint }) => Promise<bigint>;
+  getSubscription: (params: { subscriber: Address }) => Promise<bigint>;
+  getSubscriptionStatus: (params: { user: Address; source?: "auto" | "onchain" | "indexer" }) => Promise<SubscriptionStatus>;
+  isSubscriptionActive: (params: { subscriber: Address }) => Promise<boolean>;
+  owner: () => Promise<Address>;
+  getOwner: (params: { source?: "auto" | "onchain" | "indexer" }) => Promise<Address>;
+  subscribe: (params: {
+    subscriber: Address;
+    payer: Address;
+    spender: Address;
+    value: bigint;
+    deadline: bigint;
+    v: number;
+    r: Hex;
+    s: Hex;
+  }) => Promise<Hex>;
+  claimCreatorFee: (params: Omit<ClaimCreatorFeeParams, "assetAddress">) => Promise<Hex>;
+  claimRegistryFee: (params: Omit<ManageSubscriptionParams, "assetAddress">) => Promise<Hex>;
+  revokeSubscription: (params: Omit<ManageSubscriptionParams, "assetAddress">) => Promise<Hex>;
+  cancelSubscription: (params: Omit<ManageSubscriptionParams, "assetAddress">) => Promise<Hex>;
+  setSubscriptionPrice: (params: { newSubscriptionPrice: bigint }) => Promise<Hex>;
+  transferOwnership: (params: { newOwner: Address }) => Promise<Hex>;
+  renounceOwnership: () => Promise<Hex>;
+};
+
 export interface AccessCheckParams {
   /** bytes32 asset id hash (e.g. `assetIdHash` from deployments JSON). */
   assetId: Hex;

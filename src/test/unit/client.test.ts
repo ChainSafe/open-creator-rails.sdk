@@ -881,6 +881,125 @@ describe("OcrSdk full method coverage", () => {
     } as any);
     const ownerStatus = await sdk.getAssetOwnerStatus({ assetAddress, source: "indexer" });
     expect(ownerStatus).toBe(mockAddress("0xix2"));
+
+    // Bound asset helpers
+    const bound = sdk.getAsset({ assetAddress });
+    expect(bound.address).toBe(assetAddress);
+    (publicClient.readContract as any).mockResolvedValueOnce(mockAddress("0xboundOwner"));
+    await bound.owner();
+
+    (publicClient.readContract as any).mockResolvedValueOnce(assetAddress);
+    await sdk.getAssetById({ assetId });
+
+    // Dedicated indexer namespace coverage
+    expect(sdk.indexer).toBeDefined();
+    const ix = sdk.indexer!;
+
+    vi.spyOn(globalThis, "fetch" as any).mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({
+        data: {
+          subscription: { id: "sub", isActive: true, startTime: "1", endTime: "2", nonce: "3", payer: mockAddress("0xp") },
+        },
+      }),
+    } as any);
+    await ix.getSubscriptionBySubscriberId({ assetAddress, subscriberId });
+
+    vi.spyOn(globalThis, "fetch" as any).mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({
+        data: {
+          subscription: { id: "sub", isActive: true, startTime: "1", endTime: "2", nonce: "3", payer: mockAddress("0xp") },
+        },
+      }),
+    } as any);
+    await ix.getSubscription({ assetAddress, user });
+
+    vi.spyOn(globalThis, "fetch" as any).mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({
+        data: {
+          assetEntity: {
+            id: assetAddress.toLowerCase(),
+            assetId: assetId,
+            registryAddress: mockAddress("0xreg3"),
+            owner: mockAddress("0xown3"),
+          },
+        },
+      }),
+    } as any);
+    await ix.getAsset({ assetAddress });
+
+    vi.spyOn(globalThis, "fetch" as any).mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({ data: { assetEntity: { owner: mockAddress("0xown4") } } }),
+    } as any);
+    await ix.getAssetOwner({ assetAddress });
+
+    vi.spyOn(globalThis, "fetch" as any).mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({
+        data: {
+          subscriptions: {
+            items: [
+              {
+                id: "s1",
+                assetId: assetAddress,
+                subscriber: subscriberId,
+                payer: mockAddress("0xp"),
+                startTime: "1",
+                endTime: "2",
+                nonce: "3",
+                isActive: true,
+              },
+            ],
+          },
+        },
+      }),
+    } as any);
+    await ix.listSubscriptionsBySubscriberId({ subscriberId, activeOnly: true, limit: 1, offset: 0 });
+
+    vi.spyOn(globalThis, "fetch" as any).mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({
+        data: {
+          subscriptions: {
+            items: [
+              {
+                id: "s1",
+                assetId: assetAddress,
+                subscriber: subscriberId,
+                payer: mockAddress("0xp"),
+                startTime: "1",
+                endTime: "2",
+                nonce: "3",
+                isActive: true,
+              },
+            ],
+          },
+        },
+      }),
+    } as any);
+    await ix.listSubscriptionsByUser({ user, activeOnly: true, limit: 1, offset: 0 });
+
+    vi.spyOn(globalThis, "fetch" as any).mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({
+        data: {
+          assetEntities: {
+            items: [
+              {
+                id: assetAddress,
+                assetId,
+                registryAddress: mockAddress("0xreg3"),
+                owner: mockAddress("0xown3"),
+              },
+            ],
+          },
+        },
+      }),
+    } as any);
+    await ix.listAssetsByRegistry({ registryAddress: mockAddress("0xreg3"), limit: 1, offset: 0 });
   });
 
   it("covers all remaining write methods and namespaced wrappers", async () => {

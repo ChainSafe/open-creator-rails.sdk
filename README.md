@@ -13,9 +13,7 @@ pnpm add @open-creator-rails/sdk viem
 ```ts
 import { createPublicClient, createWalletClient, http } from "viem";
 import { sepolia } from "viem/chains";
-import { OcrSdk, sepoliaDeployments } from "@open-creator-rails/sdk";
-
-const registryAddress = sepoliaDeployments[0].address as `0x${string}`;
+import { OcrSdk } from "@open-creator-rails/sdk";
 
 const publicClient = createPublicClient({
   chain: sepolia,
@@ -43,8 +41,10 @@ The SDK exposes:
 - **Namespaced contract APIs** 
   - `sdk.AssetRegistry.*` wraps `AssetRegistry` contract methods
   - `sdk.Asset.*` wraps `Asset` contract methods
-- **Indexer-aware convenience reads**
-  - Some reads can prefer the indexer and fall back to onchain reads when `indexerUrl` is missing or the indexer is down.
+- **Bound "Asset client" helper**
+  - `sdk.getAsset({ assetAddress })` and `sdk.getAssetById({ assetId })` return an object that remembers `assetAddress`.
+- **Indexer namespace**
+  - `sdk.indexer.*` exposes indexer-only queries that are not possible with simple onchain reads.
 
 ### Namespaced contract usage
 
@@ -53,9 +53,13 @@ The SDK exposes:
 const assetAddress = await sdk.AssetRegistry.getAsset({ assetId });
 const exists = await sdk.AssetRegistry.viewAsset({ assetId });
 
-// Asset reads
+// Asset reads (namespace form)
 const owner = await sdk.Asset.owner({ assetAddress });
 const token = await sdk.Asset.getTokenAddress({ assetAddress });
+
+// Asset reads (bound client form)
+const asset = sdk.getAsset({ assetAddress }); // or: await sdk.getAssetById({ assetId })
+await asset.setSubscriptionPrice({ newSubscriptionPrice: 123n });
 ```
 
 ### Write methods (require `walletClient`)
@@ -65,11 +69,32 @@ All write methods require `walletClient` in the SDK config and `walletClient.acc
 ```ts
 await sdk.AssetRegistry.updateCreatorFeeShare({ creatorFeeShare: 60n });
 await sdk.Asset.setSubscriptionPrice({ assetAddress, newSubscriptionPrice: 123n });
+
+// Or with the bound asset client:
+await asset.setSubscriptionPrice({ newSubscriptionPrice: 123n });
 ```
 
 ## Indexer support
 
-If you pass `indexerUrl`, the SDK can query indexed state for some reads.
+If you pass `indexerUrl`, the SDK exposes a dedicated indexer namespace at `sdk.indexer`.
+
+### Indexer namespace (`sdk.indexer`)
+
+```ts
+if (!sdk.indexer) throw new Error("indexerUrl not configured");
+
+// Subscription for a specific asset + user
+const sub = await sdk.indexer.getSubscription({ assetAddress, user });
+
+// All subscriptions for a user (across assets), optionally only active ones
+const activeSubs = await sdk.indexer.listSubscriptionsByUser({ user, activeOnly: true });
+
+// Asset metadata (indexed)
+const assetEntity = await sdk.indexer.getAsset({ assetAddress });
+
+// Assets indexed for a registry
+const assetsInRegistry = await sdk.indexer.listAssetsByRegistry({ registryAddress });
+```
 
 ### Source selection
 
@@ -91,7 +116,7 @@ const status = await sdk.getSubscriptionStatus({ assetId, user, source: "auto" }
 const status2 = await sdk.Asset.getSubscriptionStatus({ assetAddress, user, source: "auto" });
 
 // Asset owner by assetAddress
-const owner2 = await sdk.Asset.getOwnerStatus({ assetAddress, source: "auto" });
+const owner2 = await sdk.Asset.getOwner({ assetAddress, source: "auto" });
 ```
 
 ## Local Node (Anvil) + SDK Testing
