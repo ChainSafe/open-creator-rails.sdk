@@ -1,4 +1,5 @@
 import type { Address } from "viem";
+import { getAddress } from "viem";
 import { asAddress, asHex, graphql, subscriberToId } from "./utils";
 import {
   INDEXER_ASSET_ENTITY_LIST_ORDER_BY,
@@ -142,7 +143,8 @@ export function createSdkIndexer(indexerUrl: string): OcrSdkIndexer {
     const data = await graphql<{
       subscriptions: { items: Array<any> } | null;
     }>(indexerUrl, query, {
-      subscriber: subscriberId,
+      // Stored subscriber id is bytes32 hex; normalize casing to match the DB.
+      subscriber: subscriberId.toLowerCase(),
       limit: limit ?? 100,
       offset: offset ?? 0,
       orderBy,
@@ -190,16 +192,24 @@ export function createSdkIndexer(indexerUrl: string): OcrSdkIndexer {
     orderBy = INDEXER_ASSET_ENTITY_LIST_ORDER_BY,
     orderDirection = INDEXER_ASSET_ENTITY_LIST_ORDER_DIRECTION,
   }) => {
+    const checksummed = getAddress(registryAddress);
+    const lower = registryAddress.toLowerCase();
     const query = `
       query AssetsByRegistry(
-        $registryAddress: String!
+        $registryAddressChecksummed: String!
+        $registryAddressLower: String!
         $limit: Int
         $offset: Int
         $orderBy: String!
         $orderDirection: String!
       ) {
         assetEntitys(
-          where: { registryAddress: $registryAddress }
+          where: {
+            OR: [
+              { registryAddress: $registryAddressChecksummed },
+              { registryAddress: $registryAddressLower }
+            ]
+          }
           orderBy: $orderBy
           orderDirection: $orderDirection
           limit: $limit
@@ -218,7 +228,8 @@ export function createSdkIndexer(indexerUrl: string): OcrSdkIndexer {
     const data = await graphql<{
       assetEntitys: { items: Array<any> } | null;
     }>(indexerUrl, query, {
-      registryAddress: registryAddress.toLowerCase(),
+      registryAddressChecksummed: checksummed,
+      registryAddressLower: lower,
       limit: limit ?? 100,
       offset: offset ?? 0,
       orderBy,
