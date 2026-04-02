@@ -1,6 +1,13 @@
 import type { Address } from "viem";
 import { asAddress, asHex, graphql, subscriberToId } from "./utils";
-import type { IndexerSubscription, OcrSdkIndexer } from "./types";
+import {
+  INDEXER_ASSET_ENTITY_LIST_ORDER_BY,
+  INDEXER_ASSET_ENTITY_LIST_ORDER_DIRECTION,
+  INDEXER_SUBSCRIPTION_LIST_ORDER_BY,
+  INDEXER_SUBSCRIPTION_LIST_ORDER_DIRECTION,
+  type IndexerSubscription,
+  type OcrSdkIndexer,
+} from "./types";
 
 export function createSdkIndexer(indexerUrl: string): OcrSdkIndexer {
   const getSubscriptionBySubscriberId: OcrSdkIndexer["getSubscriptionBySubscriberId"] = async ({
@@ -100,12 +107,21 @@ export function createSdkIndexer(indexerUrl: string): OcrSdkIndexer {
     activeOnly,
     limit,
     offset,
+    orderBy = INDEXER_SUBSCRIPTION_LIST_ORDER_BY,
+    orderDirection = INDEXER_SUBSCRIPTION_LIST_ORDER_DIRECTION,
   }) => {
     const query = `
-      query SubscriptionsBySubscriber($subscriber: String!, $limit: Int, $offset: Int) {
+      query SubscriptionsBySubscriber(
+        $subscriber: String!
+        $limit: Int
+        $offset: Int
+        $orderBy: String!
+        $orderDirection: String!
+      ) {
         subscriptions(
           where: { subscriber: $subscriber }
-          orderBy: { endTime: desc }
+          orderBy: $orderBy
+          orderDirection: $orderDirection
           limit: $limit
           offset: $offset
         ) {
@@ -129,6 +145,8 @@ export function createSdkIndexer(indexerUrl: string): OcrSdkIndexer {
       subscriber: subscriberId,
       limit: limit ?? 100,
       offset: offset ?? 0,
+      orderBy,
+      orderDirection,
     });
 
     const items = data.subscriptions?.items ?? [];
@@ -146,17 +164,44 @@ export function createSdkIndexer(indexerUrl: string): OcrSdkIndexer {
     return activeOnly ? mapped.filter((s) => s.isActive) : mapped;
   };
 
-  const listSubscriptionsByUser: OcrSdkIndexer["listSubscriptionsByUser"] = async ({ user, activeOnly, limit, offset }) => {
+  const listSubscriptionsByUser: OcrSdkIndexer["listSubscriptionsByUser"] = async ({
+    user,
+    activeOnly,
+    limit,
+    offset,
+    orderBy,
+    orderDirection,
+  }) => {
     const subscriberId = subscriberToId(user);
-    return listSubscriptionsBySubscriberId({ subscriberId, activeOnly, limit, offset });
+    return listSubscriptionsBySubscriberId({
+      subscriberId,
+      activeOnly,
+      limit,
+      offset,
+      orderBy,
+      orderDirection,
+    });
   };
 
-  const listAssetsByRegistry: OcrSdkIndexer["listAssetsByRegistry"] = async ({ registryAddress, limit, offset }) => {
+  const listAssetsByRegistry: OcrSdkIndexer["listAssetsByRegistry"] = async ({
+    registryAddress,
+    limit,
+    offset,
+    orderBy = INDEXER_ASSET_ENTITY_LIST_ORDER_BY,
+    orderDirection = INDEXER_ASSET_ENTITY_LIST_ORDER_DIRECTION,
+  }) => {
     const query = `
-      query AssetsByRegistry($registryAddress: String!, $limit: Int, $offset: Int) {
-        assetEntities(
+      query AssetsByRegistry(
+        $registryAddress: String!
+        $limit: Int
+        $offset: Int
+        $orderBy: String!
+        $orderDirection: String!
+      ) {
+        assetEntitys(
           where: { registryAddress: $registryAddress }
-          orderBy: { id: asc }
+          orderBy: $orderBy
+          orderDirection: $orderDirection
           limit: $limit
           offset: $offset
         ) {
@@ -171,14 +216,16 @@ export function createSdkIndexer(indexerUrl: string): OcrSdkIndexer {
     `;
 
     const data = await graphql<{
-      assetEntities: { items: Array<any> } | null;
+      assetEntitys: { items: Array<any> } | null;
     }>(indexerUrl, query, {
       registryAddress: registryAddress.toLowerCase(),
       limit: limit ?? 100,
       offset: offset ?? 0,
+      orderBy,
+      orderDirection,
     });
 
-    const items = data.assetEntities?.items ?? [];
+    const items = data.assetEntitys?.items ?? [];
     return items.map((e: any) => ({
       id: asAddress(e.id),
       assetId: asHex(e.assetId),

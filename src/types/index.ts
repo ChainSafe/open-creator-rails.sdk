@@ -1,3 +1,2 @@
-export type * from "./indexer";
-export type * from "./sdk";
-
+export * from "./sdk";
+export * from "./indexer";
