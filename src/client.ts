@@ -340,12 +340,13 @@ export class OcrSdk {
     registryFeeShare: bigint;
     totalFeeShare: bigint;
   }> {
-    const [creatorFeeShare, registryFeeShare, totalFeeShare] = (await this.publicClient.readContract({
+    const [creatorFeeShare, registryFeeShare] = (await this.publicClient.readContract({
       address: this.registryAddress,
       abi: AssetRegistryABI,
       functionName: "getFeeShares",
       args: [],
-    })) as [bigint, bigint, bigint];
+    })) as readonly [bigint, bigint];
+    const totalFeeShare = creatorFeeShare + registryFeeShare;
     return { creatorFeeShare, registryFeeShare, totalFeeShare };
   }
 
@@ -368,12 +369,8 @@ export class OcrSdk {
   }
 
   async getTotalFeeShare(): Promise<bigint> {
-    return (await this.publicClient.readContract({
-      address: this.registryAddress,
-      abi: AssetRegistryABI,
-      functionName: "getTotalFeeShare",
-      args: [],
-    })) as bigint;
+    const { totalFeeShare } = await this.getFeeShares();
+    return totalFeeShare;
   }
 
   async getRegistryOwner(): Promise<Address> {
@@ -459,15 +456,10 @@ export class OcrSdk {
   }
 
   async updateCreatorFeeShare(params: { creatorFeeShare: bigint }) {
-    const { walletClient, account } = this.getWalletContext();
-    return walletClient.writeContract({
-      address: this.registryAddress,
-      abi: AssetRegistryABI,
-      functionName: "updateCreatorFeeShare",
-      chain: walletClient.chain ?? null,
-      account,
-      args: [params.creatorFeeShare],
-    });
+    void params;
+    return Promise.reject<never>(
+      new Error("updateCreatorFeeShare is not supported by the current AssetRegistry ABI"),
+    );
   }
 
   async updateRegistryFeeShare(params: { registryFeeShare: bigint }) {
