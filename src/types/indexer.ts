@@ -62,3 +62,48 @@ export type OcrSdkIndexer = {
   }) => Promise<IndexerAssetEntity[]>;
 };
 
+// ---------------------------------------------------------------------------
+// Indexer (GraphQL) event types
+// ---------------------------------------------------------------------------
+
+export interface IndexerAssetCreatedEvent {
+  id: string;
+  assetId: Hex;
+  asset: Address;
+  subscriptionPrice: bigint;
+  tokenAddress: Address;
+  owner: Address;
+  registryAddress: Address;
+  blockNumber: bigint;
+  blockTimestamp: bigint;
+}
+
+export interface IndexerAssetSubscriptionAddedEvent {
+  id: string;
+  subscriber: Hex;
+  payer: Address;
+  startTime: bigint;
+  endTime: bigint;
+  nonce: bigint;
+  assetAddress: Address;
+  blockNumber: bigint;
+  blockTimestamp: bigint;
+}
+
+export interface IndexerAssetSubscriptionPriceUpdatedEvent {
+  id: string;
+  newSubscriptionPrice: bigint;
+  assetAddress: Address;
+  blockNumber: bigint;
+  blockTimestamp: bigint;
+}
+
+export interface IndexerAssetOwnershipTransferredEvent {
+  id: string;
+  previousOwner: Address;
+  newOwner: Address;
+  assetAddress: Address;
+  blockNumber: bigint;
+  blockTimestamp: bigint;
+}
+
