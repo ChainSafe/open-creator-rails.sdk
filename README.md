@@ -127,7 +127,7 @@ This SDK can be tested end-to-end against a local Anvil chain using the contract
 1. Install Foundry (provides `anvil` + `forge`).
 2. Initialize the contracts submodule:
 ```bash
-git submodule update --init --recursive
+npm run submodule:pull
 ```
 
 ### Run integration tests (recommended)
@@ -154,17 +154,12 @@ export RPC_URL=http://127.0.0.1:8545
 This repo includes `open-creator-rails` as a git submodule (used for contract ABIs + deployment JSON). When upstream `main` changes, update the submodule and commit the new submodule SHA (the gitlink) in this repo.
 
 #### Recommended update workflow
-1. Ensure submodules are initialized:
+1. Pull the latest `open-creator-rails` submodule commit:
 ```bash
-git submodule update --init --recursive
+npm run submodule:pull
 ```
 
-2. Update the submodule to the newest remote commit:
-```bash
-git submodule update --remote --merge open-creator-rails
-```
-
-3. Commit the updated gitlink SHA in this repository:
+2. Commit the updated gitlink SHA in this repository:
 ```bash
 git status
 git add open-creator-rails
