@@ -10,6 +10,13 @@ import {
   type OcrSdkIndexer,
 } from "./types";
 
+function extractAddress(value: string): string {
+  if (!value.includes("_")) return value;
+  const parts = value.split("_");
+  const candidate = parts[parts.length - 1];
+  return candidate || value;
+}
+
 export function createSdkIndexer(indexerUrl: string): OcrSdkIndexer {
   const getSubscriptionBySubscriberId: OcrSdkIndexer["getSubscriptionBySubscriberId"] = async ({
     assetAddress,
@@ -152,16 +159,23 @@ export function createSdkIndexer(indexerUrl: string): OcrSdkIndexer {
     });
 
     const items = data.subscriptions?.items ?? [];
-    const mapped: IndexerSubscription[] = items.map((sub: any) => ({
-      id: String(sub.id),
-      assetAddress: asAddress(sub.assetId),
+    const mapped: IndexerSubscription[] = items.map((sub: any) => {
+      const id = String(sub.id);
+      const assetAddressRaw =
+        typeof sub.assetId === "string" && sub.assetId.length > 0
+          ? sub.assetId
+          : String(id.split("_")[0] ?? "");
+      return {
+        id,
+        assetAddress: asAddress(extractAddress(assetAddressRaw)),
       subscriberId: asHex(sub.subscriber),
       payer: asAddress(sub.payer),
       isActive: Boolean(sub.isActive),
       startTime: BigInt(sub.startTime),
       endTime: BigInt(sub.endTime),
       nonce: BigInt(sub.nonce),
-    }));
+      };
+    });
 
     return activeOnly ? mapped.filter((s) => s.isActive) : mapped;
   };
