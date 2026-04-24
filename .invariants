@@ -1,0 +1,36 @@
+version: "1.0"
+scope: "open-creator-rails.sdk"
+inherits: "../.invariants"
+
+# TypeScript SDK assertions. These extend the apex invariants with guarantees
+# specific to the SDK's interface and data contracts.
+# Maintainer: SDK team — not agent-writable.
+
+asserts:
+
+  - id: subscriber_identity_derivation
+    claim: "subscriberToId derives bytes32 using keccak256(encodePacked(['address'], [subscriber]))"
+    source: codebase
+    severity: FROZEN
+    verify:
+      search: "subscriberToId keccak256 encodePacked address subscriber identity"
+      in_file: "open-creator-rails.sdk/src/utils.ts"
+    why: "Must match the convention used by all other SDKs. Divergence causes silent subscription misses across implementations."
+
+  - id: dual_data_source_with_fallback
+    claim: "SDK exposes both on-chain contract reads and indexer reads; fallback to on-chain is configurable"
+    source: codebase
+    severity: VERSIONED
+    verify:
+      search: "indexer fallback on-chain contract subscription client"
+      in_file: "open-creator-rails.sdk/src/client.ts"
+    why: "Consumers must be able to reach on-chain truth when the indexer is unavailable or stale."
+
+  - id: subscription_active_consumer_pattern
+    claim: "Active subscription check evaluates !isTerminated && endTime > now — not isTerminated/isActive alone"
+    source: codebase
+    severity: VERSIONED
+    verify:
+      search: "isTerminated isActive endTime subscription active filter consumer"
+    why: "isActive alone misses time-expired subscriptions. endTime > now alone misses revoked/cancelled ones."
+    note: "Currently FAILING — SDK uses isActive alone (src/indexer.ts). Fix tracked in indexer-24."
