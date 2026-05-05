@@ -15,7 +15,7 @@
     "lint": "eslint . --ext .ts --max-warnings=0",
     "test": "vitest run src/test/unit",
     "test:integration": "RUN_INTEGRATION_TESTS=1 vitest run src/test/integration",
-    "submodule:pull": "git submodule update --init --recursive && git submodule update --remote --merge open-creator-rails"
+    "submodule:pull": "git submodule update --init --recursive && git submodule update --remote --merge open-creator-rails open-creator-rails.indexer"
   },
   "dependencies": {
     "viem": "^2.21.3"
