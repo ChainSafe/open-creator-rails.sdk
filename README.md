@@ -151,7 +151,7 @@ export RPC_URL=http://127.0.0.1:8545
 ## Maintenance
 
 ### Updating git submodules
-This repo includes `open-creator-rails` (contracts + deployment JSON) and `open-creator-rails.indexer` (standalone indexer) as git submodules. When upstream `main` changes, update the submodules and commit the new submodule SHA values (gitlinks) in this repo.
+This repo includes the `open-creator-rails` submodule (contracts + deployment JSON). When upstream `main` changes, update the submodule and commit the new submodule SHA value (gitlink) in this repo.
 
 #### Recommended update workflow
 1. Pull the latest submodule commits:
@@ -162,7 +162,7 @@ npm run submodule:pull
 2. Commit the updated gitlink SHAs in this repository:
 ```bash
 git status
-git add open-creator-rails open-creator-rails.indexer
+git add open-creator-rails
 git commit -m "chore: update submodules"
 ```
 
