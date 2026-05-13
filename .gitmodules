@@ -1,7 +1,3 @@
 [submodule "open-creator-rails"]
 	path = open-creator-rails
 	url = https://github.com/ChainSafe/open-creator-rails.git
-
-[submodule "open-creator-rails.indexer"]
-	path = open-creator-rails.indexer
-	url = https://github.com/ChainSafe/open-creator-rails.indexer.git

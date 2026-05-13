@@ -340,13 +340,26 @@ export class OcrSdk {
     registryFeeShare: bigint;
     totalFeeShare: bigint;
   }> {
-    const [creatorFeeShare, registryFeeShare] = (await this.publicClient.readContract({
+    const raw = (await this.publicClient.readContract({
       address: this.registryAddress,
       abi: AssetRegistryABI,
       functionName: "getFeeShares",
       args: [],
-    })) as readonly [bigint, bigint];
-    const totalFeeShare = creatorFeeShare + registryFeeShare;
+    })) as unknown;
+    let tuple: readonly bigint[];
+    if (Array.isArray(raw)) {
+      tuple = raw as readonly bigint[];
+    } else if (raw && typeof raw === "object") {
+      const o = raw as Record<string, bigint>;
+      tuple = [0, 1, 2]
+        .map((i) => o[String(i)])
+        .filter((v): v is bigint => typeof v === "bigint");
+    } else {
+      throw new Error("unexpected getFeeShares return shape");
+    }
+    const creatorFeeShare = tuple[0]!;
+    const registryFeeShare = tuple[1]!;
+    const totalFeeShare = tuple[2] ?? creatorFeeShare + registryFeeShare;
     return { creatorFeeShare, registryFeeShare, totalFeeShare };
   }
 
@@ -369,8 +382,12 @@ export class OcrSdk {
   }
 
   async getTotalFeeShare(): Promise<bigint> {
-    const { totalFeeShare } = await this.getFeeShares();
-    return totalFeeShare;
+    return (await this.publicClient.readContract({
+      address: this.registryAddress,
+      abi: AssetRegistryABI,
+      functionName: "getTotalFeeShare",
+      args: [],
+    })) as bigint;
   }
 
   async getRegistryOwner(): Promise<Address> {
@@ -456,10 +473,15 @@ export class OcrSdk {
   }
 
   async updateCreatorFeeShare(params: { creatorFeeShare: bigint }) {
-    void params;
-    return Promise.reject<never>(
-      new Error("updateCreatorFeeShare is not supported by the current AssetRegistry ABI"),
-    );
+    const { walletClient, account } = this.getWalletContext();
+    return walletClient.writeContract({
+      address: this.registryAddress,
+      abi: AssetRegistryABI,
+      functionName: "updateCreatorFeeShare",
+      chain: walletClient.chain ?? null,
+      account,
+      args: [params.creatorFeeShare],
+    });
   }
 
   async updateRegistryFeeShare(params: { registryFeeShare: bigint }) {
