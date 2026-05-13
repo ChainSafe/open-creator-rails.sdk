@@ -1,9 +1,30 @@
-import { encodePacked, keccak256 } from "viem";
+import { encodeAbiParameters, encodePacked, keccak256 } from "viem";
 import type { Address, Hex } from "viem";
 
-/** `bytes32` subscriber identity hash derived from the subscriber address (matches on-chain encoding). */
-export function subscriberToId(subscriber: Address): Hex {
-  return keccak256(encodePacked(["address"], [subscriber]));
+/**
+ * Canonical on-chain subscriber identity:
+ * `keccak256(abi.encode(subscriberId, subscriberAddress))` (matches `IAsset` / `IAssetRegistry`).
+ */
+export function subscriberHash(subscriberId: string, subscriberAddress: Address): Hex {
+  return keccak256(
+    encodeAbiParameters(
+      [
+        { type: "string", name: "subscriberId" },
+        { type: "address", name: "subscriberAddress" },
+      ],
+      [subscriberId, subscriberAddress],
+    ),
+  );
+}
+
+/**
+ * Inner digest signed for `Asset.cancelSubscription` (EIP-191), before `MessageHashUtils.toEthSignedMessageHash`.
+ * Solidity: `keccak256(abi.encodePacked(chainid, address(this), subscriber))` where `subscriber` is `subscriberHash(...)`.
+ */
+export function cancelSubscriptionDigest(chainId: number, assetAddress: Address, subscriber: Hex): Hex {
+  return keccak256(
+    encodePacked(["uint256", "address", "bytes32"], [BigInt(chainId), assetAddress, subscriber]),
+  );
 }
 
 export function asAddress(value: unknown): Address {

@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 /**
  * Build OCR contracts in the submodule (forge) and refresh `src/config/*ABI.ts`
- * from `open-creator-rails/apps/contracts/out/*.json`.
+ * from `open-creator-rails/out/*.json` (Foundry `out` for the submodule root).
  *
  * Usage:
  *   node scripts/sync-contract-abis.mjs           # forge build + write files
@@ -19,7 +19,8 @@ const root = path.resolve(__dirname, "..");
 const checkOnly = process.argv.includes("--check");
 const skipForge = process.env.SKIP_FORGE === "1";
 
-const contractsDir = path.join(root, "open-creator-rails", "apps", "contracts");
+/** Foundry project root (`foundry.toml`); artifacts live under `<this>/out/`. */
+const contractsDir = path.join(root, "open-creator-rails");
 
 const targets = [
   {
@@ -71,7 +72,7 @@ for (const t of targets) {
   const jsonPath = path.join(contractsDir, t.jsonRel);
   if (!fs.existsSync(jsonPath)) {
     console.error(`Missing artifact: ${path.relative(root, jsonPath)}`);
-    console.error("Run forge build from open-creator-rails/apps/contracts (or omit SKIP_FORGE=1).");
+    console.error("Run forge build from open-creator-rails (or omit SKIP_FORGE=1).");
     process.exit(1);
   }
   const { abi } = JSON.parse(fs.readFileSync(jsonPath, "utf8"));
