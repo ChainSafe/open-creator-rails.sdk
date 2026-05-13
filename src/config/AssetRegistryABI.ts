@@ -6,11 +6,6 @@ export const AssetRegistryABI = [
     "type": "constructor",
     "inputs": [
       {
-        "name": "_creatorFeeShare",
-        "type": "uint256",
-        "internalType": "uint256"
-      },
-      {
         "name": "_registryFeeShare",
         "type": "uint256",
         "internalType": "uint256"
@@ -47,6 +42,30 @@ export const AssetRegistryABI = [
         "internalType": "bytes32"
       },
       {
+        "name": "_subscribers",
+        "type": "bytes32[]",
+        "internalType": "bytes32[]"
+      }
+    ],
+    "outputs": [
+      {
+        "name": "totalClaimedAmount",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
+    "name": "claimRegistryFee",
+    "inputs": [
+      {
+        "name": "_assetId",
+        "type": "bytes32",
+        "internalType": "bytes32"
+      },
+      {
         "name": "_subscriber",
         "type": "bytes32",
         "internalType": "bytes32"
@@ -54,7 +73,7 @@ export const AssetRegistryABI = [
     ],
     "outputs": [
       {
-        "name": "registryFee",
+        "name": "",
         "type": "uint256",
         "internalType": "uint256"
       }
@@ -76,6 +95,11 @@ export const AssetRegistryABI = [
         "internalType": "uint256"
       },
       {
+        "name": "_subscriptionDuration",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
         "name": "_tokenAddress",
         "type": "address",
         "internalType": "address"
@@ -93,6 +117,39 @@ export const AssetRegistryABI = [
         "internalType": "address"
       }
     ],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
+    "name": "emitRegistryFeeClaimedEvent",
+    "inputs": [
+      {
+        "name": "_assetId",
+        "type": "bytes32",
+        "internalType": "bytes32"
+      },
+      {
+        "name": "_subscriber",
+        "type": "bytes32",
+        "internalType": "bytes32"
+      },
+      {
+        "name": "claimedAmount",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "claimedAtTimestamp",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "claimedAtNonce",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "outputs": [],
     "stateMutability": "nonpayable"
   },
   {
@@ -151,11 +208,6 @@ export const AssetRegistryABI = [
     "name": "getFeeShares",
     "inputs": [],
     "outputs": [
-      {
-        "name": "",
-        "type": "uint256",
-        "internalType": "uint256"
-      },
       {
         "name": "",
         "type": "uint256",
@@ -264,6 +316,25 @@ export const AssetRegistryABI = [
   },
   {
     "type": "function",
+    "name": "getSubscriptionDuration",
+    "inputs": [
+      {
+        "name": "_assetId",
+        "type": "bytes32",
+        "internalType": "bytes32"
+      }
+    ],
+    "outputs": [
+      {
+        "name": "",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
     "name": "getSubscriptionPrice",
     "inputs": [
       {
@@ -272,7 +343,7 @@ export const AssetRegistryABI = [
         "internalType": "bytes32"
       },
       {
-        "name": "_duration",
+        "name": "_count",
         "type": "uint256",
         "internalType": "uint256"
       }
@@ -288,11 +359,27 @@ export const AssetRegistryABI = [
   },
   {
     "type": "function",
-    "name": "getTotalFeeShare",
-    "inputs": [],
+    "name": "getSubscriptionPriceAndDuration",
+    "inputs": [
+      {
+        "name": "_assetId",
+        "type": "bytes32",
+        "internalType": "bytes32"
+      },
+      {
+        "name": "_count",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
     "outputs": [
       {
-        "name": "",
+        "name": "price",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "duration",
         "type": "uint256",
         "internalType": "uint256"
       }
@@ -368,7 +455,7 @@ export const AssetRegistryABI = [
         "internalType": "address"
       },
       {
-        "name": "_value",
+        "name": "_count",
         "type": "uint256",
         "internalType": "uint256"
       },
@@ -410,19 +497,6 @@ export const AssetRegistryABI = [
         "name": "newOwner",
         "type": "address",
         "internalType": "address"
-      }
-    ],
-    "outputs": [],
-    "stateMutability": "nonpayable"
-  },
-  {
-    "type": "function",
-    "name": "updateCreatorFeeShare",
-    "inputs": [
-      {
-        "name": "_creatorFeeShare",
-        "type": "uint256",
-        "internalType": "uint256"
       }
     ],
     "outputs": [],
@@ -483,6 +557,12 @@ export const AssetRegistryABI = [
         "internalType": "uint256"
       },
       {
+        "name": "subscriptionDuration",
+        "type": "uint256",
+        "indexed": false,
+        "internalType": "uint256"
+      },
+      {
         "name": "tokenAddress",
         "type": "address",
         "indexed": false,
@@ -493,19 +573,6 @@ export const AssetRegistryABI = [
         "type": "address",
         "indexed": true,
         "internalType": "address"
-      }
-    ],
-    "anonymous": false
-  },
-  {
-    "type": "event",
-    "name": "CreatorFeeShareUpdated",
-    "inputs": [
-      {
-        "name": "newCreatorFeeShare",
-        "type": "uint256",
-        "indexed": false,
-        "internalType": "uint256"
       }
     ],
     "anonymous": false
@@ -534,6 +601,12 @@ export const AssetRegistryABI = [
     "name": "RegistryFeeClaimed",
     "inputs": [
       {
+        "name": "assetId",
+        "type": "bytes32",
+        "indexed": true,
+        "internalType": "bytes32"
+      },
+      {
         "name": "subscriber",
         "type": "bytes32",
         "indexed": true,
@@ -541,6 +614,43 @@ export const AssetRegistryABI = [
       },
       {
         "name": "amount",
+        "type": "uint256",
+        "indexed": false,
+        "internalType": "uint256"
+      },
+      {
+        "name": "claimedAtTimestamp",
+        "type": "uint256",
+        "indexed": false,
+        "internalType": "uint256"
+      },
+      {
+        "name": "claimedAtNonce",
+        "type": "uint256",
+        "indexed": false,
+        "internalType": "uint256"
+      }
+    ],
+    "anonymous": false
+  },
+  {
+    "type": "event",
+    "name": "RegistryFeeClaimedBatch",
+    "inputs": [
+      {
+        "name": "assetId",
+        "type": "bytes32",
+        "indexed": true,
+        "internalType": "bytes32"
+      },
+      {
+        "name": "subscribers",
+        "type": "bytes32[]",
+        "indexed": true,
+        "internalType": "bytes32[]"
+      },
+      {
+        "name": "totalAmount",
         "type": "uint256",
         "indexed": false,
         "internalType": "uint256"
@@ -573,6 +683,11 @@ export const AssetRegistryABI = [
   },
   {
     "type": "error",
+    "name": "OnlyAssetUnauthorizedAccount",
+    "inputs": []
+  },
+  {
+    "type": "error",
     "name": "OwnableInvalidOwner",
     "inputs": [
       {
@@ -595,7 +710,7 @@ export const AssetRegistryABI = [
   },
   {
     "type": "error",
-    "name": "ZeroTotalFeeShare",
+    "name": "RegistryFeeShareOutOfBounds",
     "inputs": []
   }
 ] as const satisfies Abi;

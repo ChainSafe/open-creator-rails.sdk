@@ -16,7 +16,7 @@ import { signTypedData, privateKeyToAccount } from "viem/accounts";
 
 import { OcrSdk } from "../../client";
 import { AssetRegistryABI } from "../../config/AssetRegistryABI";
-import { subscriberToId } from "../../utils";
+import { subscriberHash } from "../../utils";
 
 const runIntegration = process.env.RUN_INTEGRATION_TESTS === "1";
 const describeIntegration = runIntegration ? describe : describe.skip;
@@ -40,6 +40,8 @@ const permitTypes = {
     { name: "deadline", type: "uint256" },
   ],
 } as const;
+
+const INTEGRATION_SUBSCRIBER_ID = "integration_subscriber";
 
 async function getFreePort(): Promise<number> {
   return new Promise((resolve, reject) => {
@@ -112,8 +114,6 @@ async function startAnvil() {
       }
     }, 50);
 
-    // If `anvil` isn't available on PATH (e.g. missing Foundry in CI), Node emits an `error` event.
-    // Handle it here so Vitest fails the test deterministically instead of reporting an unhandled exception.
     proc.on("error", (err) => {
       clearTimeout(timeout);
       clearInterval(interval);
@@ -147,7 +147,7 @@ async function execForgeCreate({
   contractRef: string;
   constructorArgs: Array<string>;
 }): Promise<`0x${string}`> {
-  const contractsDir = path.join(process.cwd(), "open-creator-rails", "apps", "contracts");
+  const contractsDir = path.join(process.cwd(), "open-creator-rails");
   const args = [
     "create",
     contractRef,
@@ -198,10 +198,10 @@ describeIntegration("OcrSdk integration (anvil + real contracts)", () => {
   let assetOwner: { address: `0x${string}`; privateKey: `0x${string}` };
 
   const subscriptionPrice = 100000000n;
-  const duration = 60n;
+  const subscriptionDurationSeconds = 60n;
   const ASSET_ID = keccak256(stringToHex("asset_id"));
 
-  const mintAmount = 10_000_000_000n * 10n ** 6n; // plenty (TestToken uses 6 decimals)
+  const mintAmount = 10_000_000_000n * 10n ** 6n;
 
   beforeAll(async () => {
     anvil = await startAnvil();
@@ -230,7 +230,7 @@ describeIntegration("OcrSdk integration (anvil + real contracts)", () => {
       rpcUrl: anvil.rpcUrl,
       privateKey: registryOwner.privateKey,
       contractRef: "src/AssetRegistry.sol:AssetRegistry",
-      constructorArgs: ["70", "30"],
+      constructorArgs: ["30"],
     });
 
     const walletPayer = createWalletClient({
@@ -253,12 +253,11 @@ describeIntegration("OcrSdk integration (anvil + real contracts)", () => {
       account: privateKeyToAccount(registryOwner.privateKey),
     }) as any;
 
-    // Create the asset contract inside the registry.
     const createTx = await walletRegistryOwner.writeContract({
       address: registryAddress,
       abi: AssetRegistryABI,
       functionName: "createAsset",
-      args: [ASSET_ID, subscriptionPrice, tokenAddress, assetOwner.address],
+      args: [ASSET_ID, subscriptionPrice, subscriptionDurationSeconds, tokenAddress, assetOwner.address],
     } as any);
     await publicClient.waitForTransactionReceipt({ hash: createTx });
 
@@ -301,8 +300,9 @@ describeIntegration("OcrSdk integration (anvil + real contracts)", () => {
     const latest = await publicClient.getBlock({ blockTag: "latest" });
     const startTime = latest.timestamp;
 
-    const value = subscriptionPrice * duration;
-    const deadline = startTime + duration;
+    const count = 1n;
+    const value = subscriptionPrice * count;
+    const deadline = startTime + subscriptionDurationSeconds;
 
     const nonce = (await publicClient.readContract({
       address: tokenAddress,
@@ -342,8 +342,10 @@ describeIntegration("OcrSdk integration (anvil + real contracts)", () => {
 
     await (sdk.subscribe({
       assetId: ASSET_ID,
-      owner: payer.address,
-      value,
+      subscriberId: INTEGRATION_SUBSCRIBER_ID,
+      subscriberAddress: payer.address,
+      payer: payer.address,
+      count,
       deadline,
       v,
       r,
@@ -352,6 +354,7 @@ describeIntegration("OcrSdk integration (anvil + real contracts)", () => {
 
     const status = await sdk.getSubscriptionStatus({
       assetId: ASSET_ID,
+      subscriberId: INTEGRATION_SUBSCRIBER_ID,
       user: payer.address,
       source: "onchain",
     });
@@ -380,8 +383,7 @@ describeIntegration("OcrSdk integration (anvil + real contracts)", () => {
       args: [assetOwner.address],
     })) as bigint;
 
-    // Advance time past subscription endTime to make creator fees claimable.
-    await publicClient.request({ method: "evm_increaseTime", params: [Number(duration + 5n)] } as any);
+    await publicClient.request({ method: "evm_increaseTime", params: [Number(subscriptionDurationSeconds + 5n)] } as any);
     await publicClient.request({ method: "evm_mine", params: [] } as any);
 
     const walletAssetOwner = createWalletClient({
@@ -396,13 +398,13 @@ describeIntegration("OcrSdk integration (anvil + real contracts)", () => {
       registryAddress,
     } as any);
 
-    // Subscriber identity is derived from the subscriber address by the SDK.
-    const expectedSubscriberId = subscriberToId(payer.address);
-    expect(expectedSubscriberId).toMatch(/^0x[0-9a-fA-F]{64}$/);
+    const expectedSubscriberHash = subscriberHash(INTEGRATION_SUBSCRIBER_ID, payer.address);
+    expect(expectedSubscriberHash).toMatch(/^0x[0-9a-fA-F]{64}$/);
 
     await sdkOwner.claimCreatorFee({
       assetAddress,
-      subscriber: payer.address,
+      subscriberId: INTEGRATION_SUBSCRIBER_ID,
+      subscriberAddress: payer.address,
     });
 
     const afterBalance = (await publicClient.readContract({
@@ -448,7 +450,6 @@ describeIntegration("OcrSdk integration (anvil + real contracts)", () => {
     expect(beforeShares.creatorFeeShare).toBe(70n);
     expect(beforeShares.registryFeeShare).toBe(30n);
 
-    await sdkRegistryOwner.AssetRegistry.updateCreatorFeeShare({ creatorFeeShare: 60n });
     await sdkRegistryOwner.AssetRegistry.updateRegistryFeeShare({ registryFeeShare: 40n });
 
     const afterShares = await sdkRegistryOwner.AssetRegistry.getFeeShares();
@@ -456,8 +457,6 @@ describeIntegration("OcrSdk integration (anvil + real contracts)", () => {
     expect(afterShares.creatorFeeShare).toBe(60n);
     expect(afterShares.registryFeeShare).toBe(40n);
 
-    // restore original values for test isolation
-    await sdkRegistryOwner.AssetRegistry.updateCreatorFeeShare({ creatorFeeShare: 70n });
     await sdkRegistryOwner.AssetRegistry.updateRegistryFeeShare({ registryFeeShare: 30n });
   }, 60_000);
 
@@ -492,15 +491,18 @@ describeIntegration("OcrSdk integration (anvil + real contracts)", () => {
     const registryOnAsset = await sdkAssetOwner.Asset.getRegistryAddress({ assetAddress });
     expect(registryOnAsset.toLowerCase()).toBe(registryAddress.toLowerCase());
 
-    const subscriptionPriceForOneSecond = await sdkAssetOwner.Asset.getSubscriptionPrice({
-      assetAddress,
-      duration: 1n,
-    });
-    expect(subscriptionPriceForOneSecond).toBe(subscriptionPrice);
+    const durationOnAsset = await sdkAssetOwner.Asset.getSubscriptionDuration({ assetAddress });
+    expect(durationOnAsset).toBe(subscriptionDurationSeconds);
 
-    const beforePriceForTwoSeconds = await sdkAssetOwner.Asset.getSubscriptionPrice({
+    const subscriptionPriceForOnePeriod = await sdkAssetOwner.Asset.getSubscriptionPrice({
       assetAddress,
-      duration: 2n,
+      count: 1n,
+    });
+    expect(subscriptionPriceForOnePeriod).toBe(subscriptionPrice);
+
+    const beforePriceForTwoPeriods = await sdkAssetOwner.Asset.getSubscriptionPrice({
+      assetAddress,
+      count: 2n,
     });
 
     await sdkAssetOwner.Asset.setSubscriptionPrice({
@@ -508,13 +510,12 @@ describeIntegration("OcrSdk integration (anvil + real contracts)", () => {
       newSubscriptionPrice: subscriptionPrice + 1n,
     });
 
-    const afterPriceForTwoSeconds = await sdkAssetOwner.Asset.getSubscriptionPrice({
+    const afterPriceForTwoPeriods = await sdkAssetOwner.Asset.getSubscriptionPrice({
       assetAddress,
-      duration: 2n,
+      count: 2n,
     });
-    expect(afterPriceForTwoSeconds).toBe(beforePriceForTwoSeconds + 2n);
+    expect(afterPriceForTwoPeriods).toBe(beforePriceForTwoPeriods + 2n);
 
-    // restore original price for test isolation
     await sdkAssetOwner.Asset.setSubscriptionPrice({
       assetAddress,
       newSubscriptionPrice: subscriptionPrice,
@@ -522,15 +523,16 @@ describeIntegration("OcrSdk integration (anvil + real contracts)", () => {
 
     const payerSubscriptionEnd = await sdkAssetOwner.Asset.getSubscription({
       assetAddress,
-      subscriber: payer.address,
+      subscriberId: INTEGRATION_SUBSCRIBER_ID,
+      subscriberAddress: payer.address,
     });
     expect(payerSubscriptionEnd).toBeGreaterThan(0n);
 
     const payerActive = await sdkAssetOwner.Asset.isSubscriptionActive({
       assetAddress,
-      subscriber: payer.address,
+      subscriberId: INTEGRATION_SUBSCRIBER_ID,
+      subscriberAddress: payer.address,
     });
     expect(typeof payerActive).toBe("boolean");
   }, 60_000);
 });
-

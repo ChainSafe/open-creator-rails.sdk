@@ -1,6 +1,6 @@
 import type { Address } from "viem";
 import { getAddress } from "viem";
-import { asAddress, asHex, graphql, subscriberToId } from "./utils";
+import { asAddress, asHex, graphql, subscriberHash } from "./utils";
 import {
   INDEXER_ASSET_ENTITY_LIST_ORDER_BY,
   INDEXER_ASSET_ENTITY_LIST_ORDER_DIRECTION,
@@ -10,86 +10,142 @@ import {
   type OcrSdkIndexer,
 } from "./types";
 
-function extractAddress(value: string): string {
-  if (!value.includes("_")) return value;
-  const parts = value.split("_");
-  const candidate = parts[parts.length - 1];
-  return candidate || value;
+/** Matches `open-creator-rails.indexer` / `getAssetEntityId`. */
+export function indexerAssetEntityId(chainId: number, assetAddress: Address): string {
+  return `${chainId}_${assetAddress.toLowerCase()}`;
 }
 
-export function createSdkIndexer(indexerUrl: string): OcrSdkIndexer {
+function assetContractAddressFromEntityId(assetEntityId: string): Address {
+  const sep = assetEntityId.indexOf("_");
+  if (sep === -1) throw new Error(`Invalid asset entity id: ${assetEntityId}`);
+  return getAddress(assetEntityId.slice(sep + 1) as `0x${string}`);
+}
+
+/**
+ * Normalizes a user-provided base URL to the GraphQL endpoint used by
+ * `open-creator-rails.indexer` (`/v2/graphql`). If the URL already ends with
+ * `/v2/graphql`, it is returned unchanged.
+ */
+export function resolveOpenCreatorRailsIndexerGraphqlUrl(url: string): string {
+  const trimmed = url.trim().replace(/\/+$/, "");
+  if (/\/v2\/graphql$/i.test(trimmed)) return trimmed;
+  if (/\/graphql$/i.test(trimmed)) {
+    return trimmed.replace(/\/graphql$/i, "/v2/graphql");
+  }
+  return `${trimmed}/v2/graphql`;
+}
+
+export type CreateSdkIndexerOptions = {
+  /** Must match the chain the indexer is syncing (see `ponder.config.ts`). */
+  chainId: number;
+};
+
+export function createSdkIndexer(indexerUrl: string, options: CreateSdkIndexerOptions): OcrSdkIndexer {
+  const endpoint = resolveOpenCreatorRailsIndexerGraphqlUrl(indexerUrl);
+  const { chainId } = options;
+
   const getSubscriptionBySubscriberId: OcrSdkIndexer["getSubscriptionBySubscriberId"] = async ({
     assetAddress,
-    subscriberId,
+    subscriberHash: subscriberHashHex,
   }) => {
-    const id = `${assetAddress.toLowerCase()}_${subscriberId.toLowerCase()}`;
+    const assetEntityId = indexerAssetEntityId(chainId, assetAddress);
     const query = `
-      query Subscription($id: String!) {
-        subscription(id: $id) {
-          id
-          startTime
-          endTime
-          nonce
-          isActive
-          payer
+      query LatestSubscription($assetId: String!, $subscriber: String!) {
+        subscriptions(
+          where: { assetId: $assetId, subscriber: $subscriber }
+          orderBy: "nonce"
+          orderDirection: "desc"
+          limit: 1
+          offset: 0
+        ) {
+          items {
+            id
+            assetId
+            startTime
+            endTime
+            nonce
+            isActive
+            payer
+          }
         }
       }
     `;
 
     const data = await graphql<{
-      subscription: null | {
-        id: string;
-        startTime: string;
-        endTime: string;
-        nonce: string;
-        isActive: boolean;
-        payer?: string | null;
+      subscriptions: null | {
+        items: Array<{
+          id: string;
+          assetId: string;
+          startTime: string;
+          endTime: string;
+          nonce: string;
+          isActive: boolean;
+          payer?: string | null;
+        }>;
       };
-    }>(indexerUrl, query, { id });
+    }>(endpoint, query, {
+      assetId: assetEntityId,
+      subscriber: subscriberHashHex.toLowerCase(),
+    });
 
-    const sub = data.subscription;
-    if (!sub) return null;
+    const item = data.subscriptions?.items?.[0];
+    if (!item) return null;
+
+    const resolvedAssetAddress = assetContractAddressFromEntityId(item.assetId);
 
     return {
-      id: sub.id,
-      assetAddress,
-      subscriberId,
-      payer: sub.payer ? asAddress(sub.payer) : ("0x" + "0".repeat(40)) as Address,
-      isActive: Boolean(sub.isActive),
-      startTime: BigInt(sub.startTime),
-      endTime: BigInt(sub.endTime),
-      nonce: BigInt(sub.nonce),
+      id: item.id,
+      assetAddress: resolvedAssetAddress,
+      subscriberId: subscriberHashHex,
+      payer: item.payer ? asAddress(item.payer) : ("0x" + "0".repeat(40)) as Address,
+      isActive: Boolean(item.isActive),
+      startTime: BigInt(item.startTime),
+      endTime: BigInt(item.endTime),
+      nonce: BigInt(item.nonce),
     };
   };
 
-  const getSubscription: OcrSdkIndexer["getSubscription"] = async ({ assetAddress, user }) => {
-    const subscriberId = subscriberToId(user);
-    return getSubscriptionBySubscriberId({ assetAddress, subscriberId });
+  const getSubscription: OcrSdkIndexer["getSubscription"] = async ({
+    assetAddress,
+    subscriberId,
+    subscriberAddress,
+  }) => {
+    const h = subscriberHash(subscriberId, subscriberAddress);
+    return getSubscriptionBySubscriberId({ assetAddress, subscriberHash: h });
   };
 
   const getAsset: OcrSdkIndexer["getAsset"] = async ({ assetAddress }) => {
     const query = `
-      query AssetEntity($id: String!) {
-        assetEntity(id: $id) {
-          id
-          assetId
-          registryAddress
-          owner
+      query AssetByAddress($address: Address!) {
+        assets(where: { address: $address }, limit: 1, offset: 0) {
+          items {
+            id
+            assetId
+            registryAddress
+            owner
+            address
+          }
         }
       }
     `;
-    const id = assetAddress.toLowerCase();
 
     const data = await graphql<{
-      assetEntity: null | { id?: string; assetId?: string; registryAddress?: string; owner?: string };
-    }>(indexerUrl, query, { id });
+      assets: null | {
+        items: Array<{
+          id: string;
+          assetId: string;
+          registryAddress: string;
+          owner: string;
+          address: string;
+        }>;
+      };
+    }>(endpoint, query, { address: assetAddress.toLowerCase() });
 
-    const entity = data.assetEntity;
+    const entity = data.assets?.items?.[0];
     if (!entity) return null;
-    if (!entity.id || !entity.assetId || !entity.registryAddress || !entity.owner) return null;
 
     return {
-      id: asAddress(entity.id),
+      id: asAddress(entity.address),
       assetId: asHex(entity.assetId),
       registryAddress: asAddress(entity.registryAddress),
       owner: asAddress(entity.owner),
@@ -97,27 +153,19 @@ export function createSdkIndexer(indexerUrl: string): OcrSdkIndexer {
   };
 
   const getAssetOwner: OcrSdkIndexer["getAssetOwner"] = async ({ assetAddress }) => {
-    const query = `
-      query AssetOwner($id: String!) {
-        assetEntity(id: $id) {
-          owner
-        }
-      }
-    `;
-    const id = assetAddress.toLowerCase();
-    const data = await graphql<{ assetEntity: null | { owner?: string | null } }>(indexerUrl, query, { id });
-    const owner = data.assetEntity?.owner;
-    return owner ? asAddress(owner) : null;
+    const row = await getAsset({ assetAddress });
+    return row?.owner ?? null;
   };
 
   const listSubscriptionsBySubscriberId: OcrSdkIndexer["listSubscriptionsBySubscriberId"] = async ({
-    subscriberId,
+    subscriberHash: subscriberHashHex,
     activeOnly,
     limit,
     offset,
     orderBy = INDEXER_SUBSCRIPTION_LIST_ORDER_BY,
     orderDirection = INDEXER_SUBSCRIPTION_LIST_ORDER_DIRECTION,
   }) => {
+    const rootField = activeOnly ? "activeSubscriptions" : "subscriptions";
     const query = `
       query SubscriptionsBySubscriber(
         $subscriber: String!
@@ -126,7 +174,7 @@ export function createSdkIndexer(indexerUrl: string): OcrSdkIndexer {
         $orderBy: String!
         $orderDirection: String!
       ) {
-        subscriptions(
+        ${rootField}(
           where: { subscriber: $subscriber }
           orderBy: $orderBy
           orderDirection: $orderDirection
@@ -148,49 +196,44 @@ export function createSdkIndexer(indexerUrl: string): OcrSdkIndexer {
     `;
 
     const data = await graphql<{
-      subscriptions: { items: Array<any> } | null;
-    }>(indexerUrl, query, {
-      // Stored subscriber id is bytes32 hex; normalize casing to match the DB.
-      subscriber: subscriberId.toLowerCase(),
+      subscriptions?: { items: Array<any> } | null;
+      activeSubscriptions?: { items: Array<any> } | null;
+    }>(endpoint, query, {
+      subscriber: subscriberHashHex.toLowerCase(),
       limit: limit ?? 100,
       offset: offset ?? 0,
       orderBy,
       orderDirection,
     });
 
-    const items = data.subscriptions?.items ?? [];
-    const mapped: IndexerSubscription[] = items.map((sub: any) => {
-      const id = String(sub.id);
-      const assetAddressRaw =
-        typeof sub.assetId === "string" && sub.assetId.length > 0
-          ? sub.assetId
-          : String(id.split("_")[0] ?? "");
-      return {
-        id,
-        assetAddress: asAddress(extractAddress(assetAddressRaw)),
+    const page = activeOnly ? data.activeSubscriptions : data.subscriptions;
+    const items = page?.items ?? [];
+    const mapped: IndexerSubscription[] = items.map((sub: any) => ({
+      id: String(sub.id),
+      assetAddress: assetContractAddressFromEntityId(String(sub.assetId)),
       subscriberId: asHex(sub.subscriber),
       payer: asAddress(sub.payer),
       isActive: Boolean(sub.isActive),
       startTime: BigInt(sub.startTime),
       endTime: BigInt(sub.endTime),
       nonce: BigInt(sub.nonce),
-      };
-    });
+    }));
 
-    return activeOnly ? mapped.filter((s) => s.isActive) : mapped;
+    return mapped;
   };
 
   const listSubscriptionsByUser: OcrSdkIndexer["listSubscriptionsByUser"] = async ({
     user,
+    subscriberId,
     activeOnly,
     limit,
     offset,
     orderBy,
     orderDirection,
   }) => {
-    const subscriberId = subscriberToId(user);
+    const h = subscriberHash(subscriberId, user);
     return listSubscriptionsBySubscriberId({
-      subscriberId,
+      subscriberHash: h,
       activeOnly,
       limit,
       offset,
@@ -206,24 +249,16 @@ export function createSdkIndexer(indexerUrl: string): OcrSdkIndexer {
     orderBy = INDEXER_ASSET_ENTITY_LIST_ORDER_BY,
     orderDirection = INDEXER_ASSET_ENTITY_LIST_ORDER_DIRECTION,
   }) => {
-    const checksummed = getAddress(registryAddress);
-    const lower = registryAddress.toLowerCase();
     const query = `
       query AssetsByRegistry(
-        $registryAddressChecksummed: String!
-        $registryAddressLower: String!
+        $registryAddress: Address!
         $limit: Int
         $offset: Int
         $orderBy: String!
         $orderDirection: String!
       ) {
-        assetEntitys(
-          where: {
-            OR: [
-              { registryAddress: $registryAddressChecksummed },
-              { registryAddress: $registryAddressLower }
-            ]
-          }
+        assets(
+          where: { registryAddress: $registryAddress }
           orderBy: $orderBy
           orderDirection: $orderDirection
           limit: $limit
@@ -234,25 +269,25 @@ export function createSdkIndexer(indexerUrl: string): OcrSdkIndexer {
             assetId
             registryAddress
             owner
+            address
           }
         }
       }
     `;
 
     const data = await graphql<{
-      assetEntitys: { items: Array<any> } | null;
-    }>(indexerUrl, query, {
-      registryAddressChecksummed: checksummed,
-      registryAddressLower: lower,
+      assets: { items: Array<any> } | null;
+    }>(endpoint, query, {
+      registryAddress: registryAddress.toLowerCase(),
       limit: limit ?? 100,
       offset: offset ?? 0,
       orderBy,
       orderDirection,
     });
 
-    const items = data.assetEntitys?.items ?? [];
+    const items = data.assets?.items ?? [];
     return items.map((e: any) => ({
-      id: asAddress(e.id),
+      id: asAddress(e.address),
       assetId: asHex(e.assetId),
       registryAddress: asAddress(e.registryAddress),
       owner: asAddress(e.owner),
@@ -269,4 +304,3 @@ export function createSdkIndexer(indexerUrl: string): OcrSdkIndexer {
     listAssetsByRegistry,
   };
 }
-

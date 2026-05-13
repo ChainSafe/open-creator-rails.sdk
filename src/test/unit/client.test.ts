@@ -2,7 +2,11 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 import { getAddress, keccak256, stringToHex } from "viem";
 import type { Address, Hex, PublicClient, WalletClient } from "viem";
 import { OcrSdk } from "../../client";
-import { subscriberToId } from "../../utils";
+import { resolveOpenCreatorRailsIndexerGraphqlUrl } from "../../indexer";
+import { subscriberHash } from "../../utils";
+
+const TEST_SUBSCRIBER_ID = "test_subscriber";
+const INDEXER_TEST_CHAIN_ID = 31337;
 
 function mockAddress(label: string = "0x1"): Address {
   const normalized = label.toLowerCase();
@@ -27,6 +31,7 @@ function mockHex(label: string = "0x1234"): Hex {
 function createMockPublicClient(): PublicClient {
   return {
     readContract: vi.fn(),
+    chain: { id: INDEXER_TEST_CHAIN_ID },
   } as unknown as PublicClient;
 }
 
@@ -59,16 +64,26 @@ describe("OcrSdk.getSubscriptionStatus", () => {
 
     const assetId = mockHex();
     const user = mockAddress("0xuser");
+    const assetFromChain = mockAddress("0xasset");
+    const subHex = subscriberHash(TEST_SUBSCRIBER_ID, user);
+    const assetEntityId = `${INDEXER_TEST_CHAIN_ID}_${assetFromChain.toLowerCase()}`;
 
     const fakeResponse = {
       ok: true,
       json: async () => ({
         data: {
-          subscription: {
-            isActive: true,
-            startTime: "100",
-            endTime: "200",
-            nonce: "3",
+          subscriptions: {
+            items: [
+              {
+                id: `${assetEntityId}_${subHex}_0`,
+                assetId: assetEntityId,
+                startTime: "100",
+                endTime: "200",
+                nonce: "3",
+                isActive: true,
+                payer: user,
+              },
+            ],
           },
         },
       }),
@@ -80,11 +95,15 @@ describe("OcrSdk.getSubscriptionStatus", () => {
 
     const result = await sdk.getSubscriptionStatus({
       assetId,
+      subscriberId: TEST_SUBSCRIBER_ID,
       user,
       source: "indexer",
     });
 
-    expect(fetchSpy).toHaveBeenCalledWith(indexerUrl, expect.any(Object));
+    expect(fetchSpy).toHaveBeenCalledWith(
+      resolveOpenCreatorRailsIndexerGraphqlUrl(indexerUrl),
+      expect.any(Object),
+    );
     expect(result).toEqual({
       isActive: true,
       startTime: 100n,
@@ -115,11 +134,12 @@ describe("OcrSdk.getSubscriptionStatus", () => {
 
     vi.spyOn(globalThis, "fetch" as any).mockResolvedValue({
       ok: true,
-      json: async () => ({ data: { subscription: null } }),
+      json: async () => ({ data: { subscriptions: { items: [] } } }),
     } as any);
 
     const result = await sdk.getSubscriptionStatus({
       assetId,
+      subscriberId: TEST_SUBSCRIBER_ID,
       user,
       source: "auto",
     });
@@ -145,6 +165,7 @@ describe("OcrSdk.getSubscriptionStatus", () => {
 
     const result = await sdk.getSubscriptionStatus({
       assetId,
+      subscriberId: TEST_SUBSCRIBER_ID,
       user,
       source: "onchain",
     });
@@ -190,15 +211,19 @@ describe("OcrSdk registry helpers", () => {
 
     const assetId = mockHex();
     const user = mockAddress("0xuser");
-    const subscriberId = subscriberToId(user);
+    const subHash = subscriberHash(TEST_SUBSCRIBER_ID, user);
 
-    const active = await sdk.isSubscriptionActiveOnchain({ assetId, user });
+    const active = await sdk.isSubscriptionActiveOnchain({
+      assetId,
+      subscriberId: TEST_SUBSCRIBER_ID,
+      user,
+    });
 
     expect(active).toBe(true);
     expect(publicClient.readContract).toHaveBeenCalledWith(
       expect.objectContaining({
         functionName: "isSubscriptionActive",
-        args: [assetId, subscriberId],
+        args: [assetId, subHash],
       }),
     );
   });
@@ -215,15 +240,19 @@ describe("OcrSdk registry helpers", () => {
 
     const assetId = mockHex();
     const user = mockAddress("0xuser");
-    const subscriberId = subscriberToId(user);
+    const subHash = subscriberHash(TEST_SUBSCRIBER_ID, user);
 
-    const endTime = await sdk.getSubscriptionEndTimeOnchain({ assetId, user });
+    const endTime = await sdk.getSubscriptionEndTimeOnchain({
+      assetId,
+      subscriberId: TEST_SUBSCRIBER_ID,
+      user,
+    });
 
     expect(endTime).toBe(999n);
     expect(publicClient.readContract).toHaveBeenCalledWith(
       expect.objectContaining({
         functionName: "getSubscription",
-        args: [assetId, subscriberId],
+        args: [assetId, subHash],
       }),
     );
   });
@@ -238,22 +267,26 @@ describe("OcrSdk registry helpers", () => {
 
     const assetId = mockHex("0xassetId");
     const user = mockAddress("0xuser");
-    const subscriberId = subscriberToId(user);
+    const subHash = subscriberHash(TEST_SUBSCRIBER_ID, user);
 
     (publicClient.readContract as any)
       .mockResolvedValueOnce(true) // isSubscriptionActive
       .mockResolvedValueOnce(555n); // getSubscription
 
-    const res = await sdk.getSubscriptionOnchain({ assetId, user });
+    const res = await sdk.getSubscriptionOnchain({
+      assetId,
+      subscriberId: TEST_SUBSCRIBER_ID,
+      user,
+    });
     expect(res).toEqual({ isActive: true, endTime: 555n });
 
     expect(publicClient.readContract).toHaveBeenNthCalledWith(
       1,
-      expect.objectContaining({ functionName: "isSubscriptionActive", args: [assetId, subscriberId] }),
+      expect.objectContaining({ functionName: "isSubscriptionActive", args: [assetId, subHash] }),
     );
     expect(publicClient.readContract).toHaveBeenNthCalledWith(
       2,
-      expect.objectContaining({ functionName: "getSubscription", args: [assetId, subscriberId] }),
+      expect.objectContaining({ functionName: "getSubscription", args: [assetId, subHash] }),
     );
   });
 });
@@ -270,6 +303,7 @@ describe("OcrSdk.getSubscriptionFromIndexer", () => {
     await expect(
       sdk.getSubscriptionFromIndexer({
         assetId: mockHex(),
+        subscriberId: TEST_SUBSCRIBER_ID,
         user: mockAddress("0xuser"),
       }),
     ).rejects.toThrow("indexerUrl is not configured");
@@ -290,11 +324,12 @@ describe("OcrSdk.getSubscriptionFromIndexer", () => {
 
     vi.spyOn(globalThis, "fetch" as any).mockResolvedValue({
       ok: true,
-      json: async () => ({ data: { subscription: null } }),
+      json: async () => ({ data: { subscriptions: { items: [] } } }),
     } as any);
 
     const res = await sdk.getSubscriptionFromIndexer({
       assetId: mockHex(),
+      subscriberId: TEST_SUBSCRIBER_ID,
       user: mockAddress("0xuser"),
     });
 
@@ -324,7 +359,12 @@ describe("OcrSdk.getSubscriptionFromIndexer", () => {
       json: async () => ({}),
     } as any);
 
-    const res = await sdk.getSubscriptionStatus({ assetId, user, source: "auto" });
+    const res = await sdk.getSubscriptionStatus({
+      assetId,
+      subscriberId: TEST_SUBSCRIBER_ID,
+      user,
+      source: "auto",
+    });
     expect(res).toEqual({ isActive: true, endTime: 123n });
   });
 });
@@ -342,22 +382,35 @@ describe("OcrSdk indexer methods", () => {
       indexerUrl: "https://indexer.test/graphql",
     });
 
+    const user = mockAddress("0xuser");
+    const assetAddr = mockAddress("0xasset");
+    const subHex = subscriberHash(TEST_SUBSCRIBER_ID, user);
+    const assetEntityId = `${INDEXER_TEST_CHAIN_ID}_${assetAddr.toLowerCase()}`;
+
     vi.spyOn(globalThis, "fetch" as any).mockResolvedValueOnce({
       ok: true,
       json: async () => ({
         data: {
-          subscription: {
-            isActive: true,
-            startTime: "11",
-            endTime: "22",
-            nonce: "7",
+          subscriptions: {
+            items: [
+              {
+                id: `${assetEntityId}_${subHex}_0`,
+                assetId: assetEntityId,
+                isActive: true,
+                startTime: "11",
+                endTime: "22",
+                nonce: "7",
+                payer: user,
+              },
+            ],
           },
         },
       }),
     } as any);
 
     const res = await sdk.getSubscriptionFromIndexerByAssetAddress({
-      assetAddress: mockAddress("0xasset"),
+      assetAddress: assetAddr,
+      subscriberId: TEST_SUBSCRIBER_ID,
       user: mockAddress("0xuser"),
     });
 
@@ -379,11 +432,12 @@ describe("OcrSdk indexer methods", () => {
 
     vi.spyOn(globalThis, "fetch" as any).mockResolvedValueOnce({
       ok: true,
-      json: async () => ({ data: { subscription: null } }),
+      json: async () => ({ data: { subscriptions: { items: [] } } }),
     } as any);
 
     const res = await sdk.getSubscriptionFromIndexerByAssetAddress({
       assetAddress: mockAddress("0xasset"),
+      subscriberId: TEST_SUBSCRIBER_ID,
       user: mockAddress("0xuser"),
     });
 
@@ -400,7 +454,7 @@ describe("OcrSdk indexer methods", () => {
 
     vi.spyOn(globalThis, "fetch" as any).mockResolvedValueOnce({
       ok: true,
-      json: async () => ({ data: { assetEntity: null } }),
+      json: async () => ({ data: { assets: { items: [] } } }),
     } as any);
 
     const owner = await sdk.getAssetOwnerFromIndexer({ assetAddress: mockAddress("0xasset") });
@@ -418,7 +472,7 @@ describe("OcrSdk indexer methods", () => {
 
     const user = mockAddress("0xuser");
     const assetAddress = mockAddress("0xasset");
-    const subscriberId = subscriberToId(user);
+    const subHash = subscriberHash(TEST_SUBSCRIBER_ID, user);
 
     vi.spyOn(globalThis, "fetch" as any).mockResolvedValueOnce({
       ok: false,
@@ -432,6 +486,7 @@ describe("OcrSdk indexer methods", () => {
 
     const res = await sdk.getAssetSubscriptionStatus({
       assetAddress,
+      subscriberId: TEST_SUBSCRIBER_ID,
       user,
       source: "auto",
     });
@@ -439,11 +494,11 @@ describe("OcrSdk indexer methods", () => {
     expect(res).toEqual({ isActive: true, endTime: 321n });
     expect(publicClient.readContract).toHaveBeenNthCalledWith(
       1,
-      expect.objectContaining({ functionName: "isSubscriptionActive", args: [subscriberId] }),
+      expect.objectContaining({ functionName: "isSubscriptionActive", args: [subHash] }),
     );
     expect(publicClient.readContract).toHaveBeenNthCalledWith(
       2,
-      expect.objectContaining({ functionName: "getSubscription", args: [subscriberId] }),
+      expect.objectContaining({ functionName: "getSubscription", args: [subHash] }),
     );
   });
 
@@ -464,6 +519,7 @@ describe("OcrSdk indexer methods", () => {
     await expect(
       sdk.getAssetSubscriptionStatus({
         assetAddress: mockAddress("0xasset"),
+        subscriberId: TEST_SUBSCRIBER_ID,
         user: mockAddress("0xuser"),
         source: "indexer",
       }),
@@ -531,8 +587,10 @@ describe("OcrSdk write methods - error cases", () => {
     await expect(
       sdk.subscribe({
         assetId: mockHex(),
-        owner: mockAddress("0xowner"),
-        value: 1n,
+        subscriberId: TEST_SUBSCRIBER_ID,
+        subscriberAddress: mockAddress("0xowner"),
+        payer: mockAddress("0xowner"),
+        count: 1n,
         deadline: 2n,
         v: 27,
         r: mockHex(),
@@ -554,7 +612,8 @@ describe("OcrSdk write methods - error cases", () => {
     await expect(
       sdk.claimCreatorFee({
         assetAddress: mockAddress("0xasset"),
-        subscriber: mockAddress("0xsub"),
+        subscriberId: TEST_SUBSCRIBER_ID,
+        subscriberAddress: mockAddress("0xsub"),
       }),
     ).rejects.toThrow("walletClient.account is not set");
   });
@@ -575,8 +634,10 @@ describe("OcrSdk write methods - happy paths", () => {
 
     await sdk.AssetRegistry.subscribe({
       assetId: mockHex("0xassetId"),
-      owner: mockAddress("0xowner"),
-      value: 1n,
+      subscriberId: TEST_SUBSCRIBER_ID,
+      subscriberAddress: mockAddress("0xowner"),
+      payer: mockAddress("0xowner"),
+      count: 1n,
       deadline: 2n,
       v: 27,
       r: mockHex("0xr"),
@@ -610,15 +671,17 @@ describe("OcrSdk write methods - happy paths", () => {
 
     const params = {
       assetId: mockHex("0xassetId"),
-      owner: mockAddress("0xowner"),
-      value: 1n,
+      subscriberId: TEST_SUBSCRIBER_ID,
+      subscriberAddress: mockAddress("0xowner"),
+      payer: mockAddress("0xowner"),
+      count: 1n,
       deadline: 2n,
       v: 27,
       r: mockHex("0xr"),
       s: mockHex("0xs"),
     };
 
-    const subscriberId = subscriberToId(params.owner);
+    const subHash = subscriberHash(params.subscriberId, params.subscriberAddress);
     const res = await sdk.subscribe(params);
 
     expect(publicClient.readContract).toHaveBeenCalledWith(
@@ -634,10 +697,10 @@ describe("OcrSdk write methods - happy paths", () => {
         functionName: "subscribe",
         args: [
           params.assetId,
-          subscriberId,
-          params.owner, // payer
+          subHash,
+          params.payer, // payer
           mockAddress("0xasset"), // spender (asset contract)
-          params.value,
+          params.count,
           params.deadline,
           params.v,
           params.r,
@@ -661,17 +724,18 @@ describe("OcrSdk write methods - happy paths", () => {
 
     const params = {
       assetAddress: mockAddress("0xasset"),
-      subscriber: mockAddress("0xsub"),
+      subscriberId: TEST_SUBSCRIBER_ID,
+      subscriberAddress: mockAddress("0xsub"),
     };
 
-    const subscriberId = subscriberToId(params.subscriber);
+    const subHash = subscriberHash(params.subscriberId, params.subscriberAddress);
     const res = await sdk.claimCreatorFee(params);
 
     expect(walletClient.writeContract).toHaveBeenCalledWith(
       expect.objectContaining({
         address: params.assetAddress,
         functionName: "claimCreatorFee",
-        args: [subscriberId],
+        args: [subHash],
       }),
     );
     expect(res).toBe("0xtxhash");
@@ -689,7 +753,8 @@ describe("OcrSdk write methods - happy paths", () => {
 
     await sdk.revokeSubscription({
       assetAddress: mockAddress("0xasset"),
-      subscriber: mockAddress("0xsub"),
+      subscriberId: TEST_SUBSCRIBER_ID,
+      subscriberAddress: mockAddress("0xsub"),
     });
 
     expect(walletClient.writeContract).toHaveBeenCalledWith(
@@ -711,7 +776,8 @@ describe("OcrSdk write methods - happy paths", () => {
 
     await sdk.cancelSubscription({
       assetAddress: mockAddress("0xasset"),
-      subscriber: mockAddress("0xsub"),
+      subscriberId: TEST_SUBSCRIBER_ID,
+      signature: mockHex("0x01"),
     });
 
     expect(walletClient.writeContract).toHaveBeenCalledWith(
@@ -738,7 +804,7 @@ describe("OcrSdk full method coverage", () => {
 
     const assetId = mockHex("0xassetId");
     const user = mockAddress("0xuser");
-    const subscriberId = subscriberToId(user);
+    const subHash = subscriberHash(TEST_SUBSCRIBER_ID, user);
     const assetAddress = mockAddress("0xasset");
 
     (publicClient.readContract as any).mockResolvedValueOnce(true);
@@ -748,7 +814,7 @@ describe("OcrSdk full method coverage", () => {
     );
 
     (publicClient.readContract as any).mockResolvedValueOnce(42n);
-    await sdk.getRegistrySubscriptionPrice({ assetId, duration: 7n });
+    await sdk.getRegistrySubscriptionPrice({ assetId, count: 7n });
     expect(publicClient.readContract).toHaveBeenLastCalledWith(
       expect.objectContaining({ functionName: "getSubscriptionPrice", args: [assetId, 7n] }),
     );
@@ -771,7 +837,7 @@ describe("OcrSdk full method coverage", () => {
       expect.objectContaining({ functionName: "getFees", args: [100n] }),
     );
 
-    (publicClient.readContract as any).mockResolvedValueOnce([70n, 30n, 100n]);
+    (publicClient.readContract as any).mockResolvedValueOnce([70n, 30n]);
     await sdk.getFeeShares();
     expect(publicClient.readContract).toHaveBeenLastCalledWith(
       expect.objectContaining({ functionName: "getFeeShares", args: [] }),
@@ -789,10 +855,11 @@ describe("OcrSdk full method coverage", () => {
       expect.objectContaining({ functionName: "getRegistryFeeShare", args: [] }),
     );
 
-    (publicClient.readContract as any).mockResolvedValueOnce(100n);
-    await sdk.getTotalFeeShare();
+    (publicClient.readContract as any).mockResolvedValueOnce(70n).mockResolvedValueOnce(30n);
+    const totalShare = await sdk.getTotalFeeShare();
+    expect(totalShare).toBe(100n);
     expect(publicClient.readContract).toHaveBeenLastCalledWith(
-      expect.objectContaining({ functionName: "getTotalFeeShare", args: [] }),
+      expect.objectContaining({ functionName: "getRegistryFeeShare", args: [] }),
     );
 
     (publicClient.readContract as any).mockResolvedValueOnce(mockAddress("0xowner1"));
@@ -832,24 +899,32 @@ describe("OcrSdk full method coverage", () => {
     );
 
     (publicClient.readContract as any).mockResolvedValueOnce(77n);
-    await sdk.getAssetSubscriptionPrice({ assetAddress, duration: 7n });
+    await sdk.getAssetSubscriptionPrice({ assetAddress, count: 7n });
     expect(publicClient.readContract).toHaveBeenLastCalledWith(
       expect.objectContaining({ address: assetAddress, functionName: "getSubscriptionPrice", args: [7n] }),
     );
 
     (publicClient.readContract as any).mockResolvedValueOnce(123n);
-    await sdk.getAssetSubscription({ assetAddress, subscriber: user });
+    await sdk.getAssetSubscription({
+      assetAddress,
+      subscriberId: TEST_SUBSCRIBER_ID,
+      subscriberAddress: user,
+    });
     expect(publicClient.readContract).toHaveBeenLastCalledWith(
-      expect.objectContaining({ address: assetAddress, functionName: "getSubscription", args: [subscriberId] }),
+      expect.objectContaining({ address: assetAddress, functionName: "getSubscription", args: [subHash] }),
     );
 
     (publicClient.readContract as any).mockResolvedValueOnce(true);
-    await sdk.isAssetSubscriptionActive({ assetAddress, subscriber: user });
+    await sdk.isAssetSubscriptionActive({
+      assetAddress,
+      subscriberId: TEST_SUBSCRIBER_ID,
+      subscriberAddress: user,
+    });
     expect(publicClient.readContract).toHaveBeenLastCalledWith(
       expect.objectContaining({
         address: assetAddress,
         functionName: "isSubscriptionActive",
-        args: [subscriberId],
+        args: [subHash],
       }),
     );
 
@@ -861,7 +936,21 @@ describe("OcrSdk full method coverage", () => {
 
     vi.spyOn(globalThis, "fetch" as any).mockResolvedValueOnce({
       ok: true,
-      json: async () => ({ data: { assetEntity: { id: assetAddress.toLowerCase(), owner: mockAddress("0xix") } } }),
+      json: async () => ({
+        data: {
+          assets: {
+            items: [
+              {
+                id: `${INDEXER_TEST_CHAIN_ID}_${assetAddress.toLowerCase()}`,
+                assetId,
+                registryAddress: mockAddress("0xreg3"),
+                owner: mockAddress("0xix"),
+                address: assetAddress.toLowerCase(),
+              },
+            ],
+          },
+        },
+      }),
     } as any);
     const ixOwner = await sdk.getAssetOwnerFromIndexer({ assetAddress });
     expect(ixOwner).toBe(mockAddress("0xix"));
@@ -869,15 +958,48 @@ describe("OcrSdk full method coverage", () => {
     vi.spyOn(globalThis, "fetch" as any).mockResolvedValueOnce({
       ok: true,
       json: async () => ({
-        data: { subscription: { isActive: true, startTime: "1", endTime: "2", nonce: "3" } },
+        data: {
+          subscriptions: {
+            items: [
+              {
+                id: `${INDEXER_TEST_CHAIN_ID}_${assetAddress.toLowerCase()}_${subHash}_0`,
+                assetId: `${INDEXER_TEST_CHAIN_ID}_${assetAddress.toLowerCase()}`,
+                isActive: true,
+                startTime: "1",
+                endTime: "2",
+                nonce: "3",
+                payer: user,
+              },
+            ],
+          },
+        },
       }),
     } as any);
-    const ixStatus = await sdk.getAssetSubscriptionStatus({ assetAddress, user, source: "indexer" });
+    const ixStatus = await sdk.getAssetSubscriptionStatus({
+      assetAddress,
+      subscriberId: TEST_SUBSCRIBER_ID,
+      user,
+      source: "indexer",
+    });
     expect(ixStatus).toEqual({ isActive: true, startTime: 1n, endTime: 2n, nonce: 3n });
 
     vi.spyOn(globalThis, "fetch" as any).mockResolvedValueOnce({
       ok: true,
-      json: async () => ({ data: { assetEntity: { id: assetAddress.toLowerCase(), owner: mockAddress("0xix2") } } }),
+      json: async () => ({
+        data: {
+          assets: {
+            items: [
+              {
+                id: `${INDEXER_TEST_CHAIN_ID}_${assetAddress.toLowerCase()}`,
+                assetId: assetId,
+                registryAddress: mockAddress("0xreg3"),
+                address: assetAddress.toLowerCase(),
+                owner: mockAddress("0xix2"),
+              },
+            ],
+          },
+        },
+      }),
     } as any);
     const ownerStatus = await sdk.getAssetOwnerStatus({ assetAddress, source: "indexer" });
     expect(ownerStatus).toBe(mockAddress("0xix2"));
@@ -899,31 +1021,60 @@ describe("OcrSdk full method coverage", () => {
       ok: true,
       json: async () => ({
         data: {
-          subscription: { id: "sub", isActive: true, startTime: "1", endTime: "2", nonce: "3", payer: mockAddress("0xp") },
+          subscriptions: {
+            items: [
+              {
+                id: "sub",
+                assetId: `${INDEXER_TEST_CHAIN_ID}_${assetAddress.toLowerCase()}`,
+                isActive: true,
+                startTime: "1",
+                endTime: "2",
+                nonce: "3",
+                payer: mockAddress("0xp"),
+              },
+            ],
+          },
         },
       }),
     } as any);
-    await ix.getSubscriptionBySubscriberId({ assetAddress, subscriberId });
+    await ix.getSubscriptionBySubscriberId({ assetAddress, subscriberHash: subHash });
 
     vi.spyOn(globalThis, "fetch" as any).mockResolvedValueOnce({
       ok: true,
       json: async () => ({
         data: {
-          subscription: { id: "sub", isActive: true, startTime: "1", endTime: "2", nonce: "3", payer: mockAddress("0xp") },
+          subscriptions: {
+            items: [
+              {
+                id: "sub",
+                assetId: `${INDEXER_TEST_CHAIN_ID}_${assetAddress.toLowerCase()}`,
+                isActive: true,
+                startTime: "1",
+                endTime: "2",
+                nonce: "3",
+                payer: mockAddress("0xp"),
+              },
+            ],
+          },
         },
       }),
     } as any);
-    await ix.getSubscription({ assetAddress, user });
+    await ix.getSubscription({ assetAddress, subscriberId: TEST_SUBSCRIBER_ID, subscriberAddress: user });
 
     vi.spyOn(globalThis, "fetch" as any).mockResolvedValueOnce({
       ok: true,
       json: async () => ({
         data: {
-          assetEntity: {
-            id: assetAddress.toLowerCase(),
-            assetId: assetId,
-            registryAddress: mockAddress("0xreg3"),
-            owner: mockAddress("0xown3"),
+          assets: {
+            items: [
+              {
+                id: `${INDEXER_TEST_CHAIN_ID}_${assetAddress.toLowerCase()}`,
+                assetId: assetId,
+                registryAddress: mockAddress("0xreg3"),
+                owner: mockAddress("0xown3"),
+                address: assetAddress.toLowerCase(),
+              },
+            ],
           },
         },
       }),
@@ -932,7 +1083,21 @@ describe("OcrSdk full method coverage", () => {
 
     vi.spyOn(globalThis, "fetch" as any).mockResolvedValueOnce({
       ok: true,
-      json: async () => ({ data: { assetEntity: { owner: mockAddress("0xown4") } } }),
+      json: async () => ({
+        data: {
+          assets: {
+            items: [
+              {
+                id: `${INDEXER_TEST_CHAIN_ID}_${assetAddress.toLowerCase()}`,
+                assetId: assetId,
+                registryAddress: mockAddress("0xreg3"),
+                owner: mockAddress("0xown4"),
+                address: assetAddress.toLowerCase(),
+              },
+            ],
+          },
+        },
+      }),
     } as any);
     await ix.getAssetOwner({ assetAddress });
 
@@ -944,8 +1109,8 @@ describe("OcrSdk full method coverage", () => {
             items: [
               {
                 id: "s1",
-                assetId: assetAddress,
-                subscriber: subscriberId,
+                assetId: `${INDEXER_TEST_CHAIN_ID}_${assetAddress.toLowerCase()}`,
+                subscriber: subHash,
                 payer: mockAddress("0xp"),
                 startTime: "1",
                 endTime: "2",
@@ -957,7 +1122,7 @@ describe("OcrSdk full method coverage", () => {
         },
       }),
     } as any);
-    await ix.listSubscriptionsBySubscriberId({ subscriberId, activeOnly: true, limit: 1, offset: 0 });
+    await ix.listSubscriptionsBySubscriberId({ subscriberHash: subHash, activeOnly: true, limit: 1, offset: 0 });
 
     vi.spyOn(globalThis, "fetch" as any).mockResolvedValueOnce({
       ok: true,
@@ -967,8 +1132,8 @@ describe("OcrSdk full method coverage", () => {
             items: [
               {
                 id: "s1",
-                assetId: assetAddress,
-                subscriber: subscriberId,
+                assetId: `${INDEXER_TEST_CHAIN_ID}_${assetAddress.toLowerCase()}`,
+                subscriber: subHash,
                 payer: mockAddress("0xp"),
                 startTime: "1",
                 endTime: "2",
@@ -980,19 +1145,26 @@ describe("OcrSdk full method coverage", () => {
         },
       }),
     } as any);
-    await ix.listSubscriptionsByUser({ user, activeOnly: true, limit: 1, offset: 0 });
+    await ix.listSubscriptionsByUser({
+      user,
+      subscriberId: TEST_SUBSCRIBER_ID,
+      activeOnly: true,
+      limit: 1,
+      offset: 0,
+    });
 
     vi.spyOn(globalThis, "fetch" as any).mockResolvedValueOnce({
       ok: true,
       json: async () => ({
         data: {
-          assetEntitys: {
+          assets: {
             items: [
               {
-                id: assetAddress,
+                id: `${INDEXER_TEST_CHAIN_ID}_${assetAddress.toLowerCase()}`,
                 assetId,
                 registryAddress: mockAddress("0xreg3"),
                 owner: mockAddress("0xown3"),
+                address: assetAddress.toLowerCase(),
               },
             ],
           },
@@ -1014,13 +1186,14 @@ describe("OcrSdk full method coverage", () => {
     const assetId = mockHex("0xassetId");
     const assetAddress = mockAddress("0xasset");
     const user = mockAddress("0xuser");
-    const subscriberId = subscriberToId(user);
+    const subHash = subscriberHash(TEST_SUBSCRIBER_ID, user);
 
     (walletClient.writeContract as any).mockResolvedValue("0xtxhash");
 
     await sdk.createAsset({
       assetId,
       subscriptionPrice: 5n,
+      subscriptionDuration: 60n,
       tokenAddress: mockAddress("0xtoken"),
       owner: mockAddress("0xowner"),
     });
@@ -1028,14 +1201,13 @@ describe("OcrSdk full method coverage", () => {
       expect.objectContaining({ functionName: "createAsset" }),
     );
 
-    await sdk.claimRegistryFeeFromRegistry({ assetId, subscriber: user });
+    await sdk.claimRegistryFeeFromRegistry({
+      assetId,
+      subscriberId: TEST_SUBSCRIBER_ID,
+      subscriberAddress: user,
+    });
     expect(walletClient.writeContract).toHaveBeenLastCalledWith(
-      expect.objectContaining({ functionName: "claimRegistryFee", args: [assetId, subscriberId] }),
-    );
-
-    await sdk.updateCreatorFeeShare({ creatorFeeShare: 80n });
-    expect(walletClient.writeContract).toHaveBeenLastCalledWith(
-      expect.objectContaining({ functionName: "updateCreatorFeeShare", args: [80n] }),
+      expect.objectContaining({ functionName: "claimRegistryFee", args: [assetId, subHash] }),
     );
 
     await sdk.updateRegistryFeeShare({ registryFeeShare: 20n });
@@ -1055,10 +1227,11 @@ describe("OcrSdk full method coverage", () => {
 
     await sdk.subscribeToAsset({
       assetAddress,
-      subscriber: user,
+      subscriberId: TEST_SUBSCRIBER_ID,
+      subscriberAddress: user,
       payer: mockAddress("0xpayer"),
       spender: assetAddress,
-      value: 10n,
+      count: 10n,
       deadline: 20n,
       v: 27,
       r: mockHex("0xr"),
@@ -1068,13 +1241,17 @@ describe("OcrSdk full method coverage", () => {
       expect.objectContaining({
         address: assetAddress,
         functionName: "subscribe",
-        args: [subscriberId, mockAddress("0xpayer"), assetAddress, 10n, 20n, 27, mockHex("0xr"), mockHex("0xs")],
+        args: [subHash, mockAddress("0xpayer"), assetAddress, 10n, 20n, 27, mockHex("0xr"), mockHex("0xs")],
       }),
     );
 
-    await sdk.claimRegistryFeeOnAsset({ assetAddress, subscriber: user });
+    await sdk.claimRegistryFeeOnAsset({
+      assetAddress,
+      subscriberId: TEST_SUBSCRIBER_ID,
+      subscriberAddress: user,
+    });
     expect(walletClient.writeContract).toHaveBeenLastCalledWith(
-      expect.objectContaining({ address: assetAddress, functionName: "claimRegistryFee", args: [subscriberId] }),
+      expect.objectContaining({ address: assetAddress, functionName: "claimRegistryFee", args: [subHash] }),
     );
 
     await sdk.setAssetSubscriptionPrice({ assetAddress, newSubscriptionPrice: 99n });

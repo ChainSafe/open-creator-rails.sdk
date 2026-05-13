@@ -8,13 +8,13 @@ export type IndexerOrderDirection = "asc" | "desc";
 export const INDEXER_SUBSCRIPTION_LIST_ORDER_BY = "endTime" as const;
 export const INDEXER_SUBSCRIPTION_LIST_ORDER_DIRECTION: IndexerOrderDirection = "desc";
 
-/** Default sort for `assetEntitys` list queries. */
+/** Default sort for `assets` list queries (v2 GraphQL). */
 export const INDEXER_ASSET_ENTITY_LIST_ORDER_BY = "id" as const;
 export const INDEXER_ASSET_ENTITY_LIST_ORDER_DIRECTION: IndexerOrderDirection = "asc";
 
 /** Indexer namespace types (GraphQL-backed). */
 export type IndexerSubscription = SubscriptionStatus & {
-  /** `${assetAddress.toLowerCase()}_${subscriberId.toLowerCase()}` */
+  /** Indexer row id: `${chainId}_${asset}_${subscriber}_${nonce}`. */
   id: string;
   assetAddress: Address;
   subscriberId: Hex;
@@ -30,15 +30,19 @@ export type IndexerAssetEntity = {
 };
 
 export type OcrSdkIndexer = {
-  getSubscription: (params: { assetAddress: Address; user: Address }) => Promise<IndexerSubscription | null>;
+  getSubscription: (params: {
+    assetAddress: Address;
+    subscriberId: string;
+    subscriberAddress: Address;
+  }) => Promise<IndexerSubscription | null>;
   getSubscriptionBySubscriberId: (params: {
     assetAddress: Address;
-    subscriberId: Hex;
+    subscriberHash: Hex;
   }) => Promise<IndexerSubscription | null>;
   getAsset: (params: { assetAddress: Address }) => Promise<IndexerAssetEntity | null>;
   getAssetOwner: (params: { assetAddress: Address }) => Promise<Address | null>;
   listSubscriptionsBySubscriberId: (params: {
-    subscriberId: Hex;
+    subscriberHash: Hex;
     activeOnly?: boolean;
     limit?: number;
     offset?: number;
@@ -47,6 +51,7 @@ export type OcrSdkIndexer = {
   }) => Promise<IndexerSubscription[]>;
   listSubscriptionsByUser: (params: {
     user: Address;
+    subscriberId: string;
     activeOnly?: boolean;
     limit?: number;
     offset?: number;
@@ -71,6 +76,7 @@ export interface IndexerAssetCreatedEvent {
   assetId: Hex;
   asset: Address;
   subscriptionPrice: bigint;
+  subscriptionDuration: bigint;
   tokenAddress: Address;
   owner: Address;
   registryAddress: Address;
