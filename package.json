@@ -20,7 +20,7 @@
     "submodule:pull": "git submodule update --init --recursive && git submodule update --remote --merge open-creator-rails"
   },
   "dependencies": {
-    "viem": "^2.21.3"
+    "viem": "^2.51.3"
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",
