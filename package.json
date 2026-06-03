@@ -28,7 +28,7 @@
     "prepack": "pnpm run build",
     "prepublishOnly": "pnpm run test && pnpm run lint",
     "typecheck": "tsc -p tsconfig.json --noEmit",
-    "lint": "eslint . --ext .ts --max-warnings=0",
+    "lint": "eslint src --max-warnings=0",
     "test": "vitest run src/test/unit",
     "test:integration": "RUN_INTEGRATION_TESTS=1 vitest run src/test/integration",
     "abis:sync": "node scripts/sync-contract-abis.mjs",
