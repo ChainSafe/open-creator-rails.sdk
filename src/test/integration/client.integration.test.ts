@@ -365,6 +365,96 @@ describeIntegration("OcrSdk integration (anvil + real contracts)", () => {
     expect((status.endTime as bigint) > after.timestamp).toBe(true);
   }, 60_000);
 
+  it("subscribes via asset contract using period template", async () => {
+    if (!anvil) throw new Error("Integration environment not initialized");
+
+    const chain = {
+      id: TEST_CHAIN_ID,
+      name: "anvil",
+      nativeCurrency: { name: "ETH", symbol: "ETH", decimals: 18 },
+      rpcUrls: { default: { http: [anvil.rpcUrl] } },
+    } as any;
+
+    const walletPayer = createWalletClient({
+      chain,
+      transport: http(anvil.rpcUrl),
+      account: privateKeyToAccount(payer.privateKey),
+    }) as any;
+
+    const sdk = new OcrSdk({
+      publicClient: publicClient as any,
+      walletClient: walletPayer as any,
+      registryAddress,
+    } as any);
+
+    const quote = await sdk.getAsset({ assetAddress }).getSubscriptionQuote({ period: "week" });
+    const expectedCount = 604_800n / subscriptionDurationSeconds;
+    expect(quote.count).toBe(expectedCount);
+    expect(quote.duration).toBe(subscriptionDurationSeconds * expectedCount);
+
+    const latest = await publicClient.getBlock({ blockTag: "latest" });
+    const deadline = latest.timestamp + quote.duration;
+
+    const nonce = (await publicClient.readContract({
+      address: tokenAddress,
+      abi: testTokenAbi,
+      functionName: "nonces",
+      args: [payer.address],
+    })) as bigint;
+
+    const tokenName = (await publicClient.readContract({
+      address: tokenAddress,
+      abi: testTokenAbi,
+      functionName: "name",
+    })) as string;
+
+    const chainId = await publicClient.getChainId();
+
+    const signature = await signTypedData({
+      privateKey: payer.privateKey,
+      domain: {
+        name: tokenName,
+        version: "1",
+        chainId,
+        verifyingContract: tokenAddress,
+      },
+      types: permitTypes as any,
+      primaryType: "Permit",
+      message: {
+        owner: payer.address,
+        spender: assetAddress,
+        value: quote.price,
+        nonce,
+        deadline,
+      } as any,
+    });
+
+    const { v, r, s } = splitSignature(signature as `0x${string}`);
+
+    await sdk.subscribeToAsset({
+      assetAddress,
+      subscriberId: `${INTEGRATION_SUBSCRIBER_ID}_period`,
+      subscriberAddress: payer.address,
+      payer: payer.address,
+      spender: assetAddress,
+      period: "week",
+      deadline,
+      v,
+      r,
+      s,
+    });
+
+    const status = await sdk.getAssetSubscriptionStatus({
+      assetAddress,
+      subscriberId: `${INTEGRATION_SUBSCRIBER_ID}_period`,
+      user: payer.address,
+      source: "onchain",
+    });
+
+    expect(status.isActive).toBe(true);
+    expect(status.endTime).toBeDefined();
+  }, 60_000);
+
   it("allows asset owner to claim creator fees after expiry", async () => {
     if (!anvil) throw new Error("Integration environment not initialized");
 

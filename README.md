@@ -63,6 +63,36 @@ const token = await sdk.Asset.getTokenAddress({ assetAddress });
 // Asset reads (bound client form)
 const asset = sdk.getAsset({ assetAddress }); // or: await sdk.getAssetById({ assetId })
 await asset.setSubscriptionPrice({ newSubscriptionPrice: 123n });
+
+// Optional period templates (day, week, month, year) instead of raw period-count
+const weekPrice = await asset.getSubscriptionPrice({ period: "week" });
+const quote = await asset.getSubscriptionQuote({ period: "month" });
+// quote.count, quote.price, quote.duration — use quote.price for ERC-2612 permit value
+```
+
+### Subscription period templates
+
+Assets bill in multiples of their on-chain period (`getSubscriptionDuration()`). Pass **`period`** instead of **`count`** on Asset pricing and subscribe helpers:
+
+| `period` | Wall-clock length (fixed) |
+|----------|---------------------------|
+| `day`    | 86,400 s (1 day)          |
+| `week`   | 604,800 s (7 days)        |
+| `month`  | 2,592,000 s (30 days)     |
+| `year`   | 31,536,000 s (365 days)   |
+
+The SDK converts a template into the smallest on-chain **period-count** that covers at least that length. Pass **either** `count` **or** `period`, not both.
+
+```ts
+await asset.subscribe({
+  subscriberId: "alice",
+  subscriberAddress: user,
+  payer: user,
+  spender: assetAddress,
+  period: "month",
+  deadline,
+  v, r, s,
+});
 ```
 
 ### Write methods (require `walletClient`)

@@ -1,4 +1,7 @@
 import type { Address, Hex, PublicClient, WalletClient } from "viem";
+import type { SubscriptionPeriod, SubscriptionPeriodCountInput } from "../subscriptionPeriod";
+
+export type { SubscriptionPeriod, SubscriptionPeriodCountInput };
 
 export interface OcrSdkConfig {
   /** Onchain read client (required). */
@@ -19,10 +22,14 @@ export type OcrAssetClient = {
   getRegistryAddress: () => Promise<Address>;
   getTokenAddress: () => Promise<Address>;
   getSubscriptionDuration: () => Promise<bigint>;
-  getSubscriptionPrice: (params: { count: bigint }) => Promise<bigint>;
-  getSubscriptionPriceAndDuration: (params: {
-    count: bigint;
-  }) => Promise<{ price: bigint; duration: bigint }>;
+  getSubscriptionPrice: (params: SubscriptionPeriodCountInput) => Promise<bigint>;
+  getSubscriptionPriceAndDuration: (
+    params: SubscriptionPeriodCountInput,
+  ) => Promise<{ price: bigint; duration: bigint }>;
+  /** Resolves `count` from optional `period`, then returns on-chain price and total duration. */
+  getSubscriptionQuote: (
+    params: SubscriptionPeriodCountInput,
+  ) => Promise<{ count: bigint; price: bigint; duration: bigint }>;
   getSubscription: (params: { subscriberId: string; subscriberAddress: Address }) => Promise<bigint>;
   getSubscriptionStatus: (params: {
     subscriberId: string;
@@ -37,12 +44,11 @@ export type OcrAssetClient = {
     subscriberAddress: Address;
     payer: Address;
     spender: Address;
-    count: bigint;
     deadline: bigint;
     v: number;
     r: Hex;
     s: Hex;
-  }) => Promise<Hex>;
+  } & SubscriptionPeriodCountInput) => Promise<Hex>;
   claimCreatorFee: (params: { subscriberId: string; subscriberAddress: Address }) => Promise<Hex>;
   claimCreatorFeeBatch: (params: { subscribers: readonly Hex[] }) => Promise<Hex>;
   claimRegistryFee: (params: { subscriberId: string; subscriberAddress: Address }) => Promise<Hex>;
