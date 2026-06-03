@@ -4,8 +4,11 @@ TypeScript SDK for interacting with Open Creator Rails
 
 ## Install
 
+Published on npm as [`@chainsafe/open-creator-rails-sdk`](https://www.npmjs.com/package/@chainsafe/open-creator-rails-sdk).
+
 ```bash
-pnpm add @open-creator-rails/sdk viem
+pnpm add @chainsafe/open-creator-rails-sdk viem
+# npm install @chainsafe/open-creator-rails-sdk viem
 ```
 
 ## Quick start
@@ -13,7 +16,7 @@ pnpm add @open-creator-rails/sdk viem
 ```ts
 import { createPublicClient, createWalletClient, http } from "viem";
 import { sepolia } from "viem/chains";
-import { OcrSdk } from "@open-creator-rails/sdk";
+import { OcrSdk } from "@chainsafe/open-creator-rails-sdk";
 
 const publicClient = createPublicClient({
   chain: sepolia,
@@ -165,6 +168,22 @@ git status
 git add open-creator-rails
 git commit -m "chore: update submodules"
 ```
+
+## Publishing to npm
+
+Package: `@chainsafe/open-creator-rails-sdk` (public, ChainSafe org).
+
+```bash
+pnpm install
+pnpm run build
+pnpm run test
+pnpm run lint
+npm version patch   # or minor / major
+git push && git push --tags
+npm publish --access public
+```
+
+Requires npm login as a user with publish access to the `@chainsafe` scope. `prepack` builds `dist/` automatically before pack/publish.
 
 
 
