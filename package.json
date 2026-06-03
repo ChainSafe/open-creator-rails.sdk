@@ -3,6 +3,7 @@
   "version": "0.1.0",
   "description": "TypeScript SDK for interacting with Open Creator Rails contracts and indexer.",
   "license": "MIT",
+  "packageManager": "pnpm@10.28.0",
   "repository": {
     "type": "git",
     "url": "git+https://github.com/ChainSafe/open-creator-rails.sdk.git"

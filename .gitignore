@@ -22,4 +22,6 @@ pnpm-debug.log*
 # misc
 *.tsbuildinfo
 
-act.tgzcoverage/
+act.tgz
+
+coverage/
