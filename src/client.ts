@@ -14,6 +14,7 @@ import type {
   SubscribeParams,
   SubscriptionStatus,
 } from "./types";
+import { resolveSubscriptionCount, type SubscriptionPeriodCountInput } from "./subscriptionPeriod";
 import { subscriberHash } from "./utils";
 
 export class OcrSdk {
@@ -70,11 +71,15 @@ export class OcrSdk {
     getRegistryAddress: (params: { assetAddress: Address }) => Promise<Address>;
     getTokenAddress: (params: { assetAddress: Address }) => Promise<Address>;
     getSubscriptionDuration: (params: { assetAddress: Address }) => Promise<bigint>;
-    getSubscriptionPrice: (params: { assetAddress: Address; count: bigint }) => Promise<bigint>;
+    getSubscriptionPrice: (params: {
+      assetAddress: Address;
+    } & SubscriptionPeriodCountInput) => Promise<bigint>;
     getSubscriptionPriceAndDuration: (params: {
       assetAddress: Address;
-      count: bigint;
-    }) => Promise<{ price: bigint; duration: bigint }>;
+    } & SubscriptionPeriodCountInput) => Promise<{ price: bigint; duration: bigint }>;
+    getSubscriptionQuote: (params: {
+      assetAddress: Address;
+    } & SubscriptionPeriodCountInput) => Promise<{ count: bigint; price: bigint; duration: bigint }>;
     getSubscription: (params: {
       assetAddress: Address;
       subscriberId: string;
@@ -102,12 +107,11 @@ export class OcrSdk {
       subscriberAddress: Address;
       payer: Address;
       spender: Address;
-      count: bigint;
       deadline: bigint;
       v: number;
       r: Hex;
       s: Hex;
-    }) => Promise<Hex>;
+    } & SubscriptionPeriodCountInput) => Promise<Hex>;
     claimCreatorFee: (params: ClaimCreatorFeeParams) => Promise<Hex>;
     claimCreatorFeeBatch: (params: { assetAddress: Address; subscribers: readonly Hex[] }) => Promise<Hex>;
     claimRegistryFee: (params: ManageSubscriptionParams) => Promise<Hex>;
@@ -166,6 +170,7 @@ export class OcrSdk {
       getSubscriptionDuration: (params) => this.getAssetSubscriptionDuration(params),
       getSubscriptionPrice: (params) => this.getAssetSubscriptionPrice(params),
       getSubscriptionPriceAndDuration: (params) => this.getAssetSubscriptionPriceAndDuration(params),
+      getSubscriptionQuote: (params) => this.getAssetSubscriptionQuote(params),
       getSubscription: (params) => this.getAssetSubscription(params),
       getSubscriptionStatus: (params) => this.getAssetSubscriptionStatus(params),
       isSubscriptionActive: (params) => this.isAssetSubscriptionActive(params),
@@ -193,6 +198,14 @@ export class OcrSdk {
 
   private subscriberBytes32(params: { subscriberId: string; user: Address }): Hex {
     return subscriberHash(params.subscriberId, params.user);
+  }
+
+  private async resolveAssetSubscriptionCount(
+    assetAddress: Address,
+    params: SubscriptionPeriodCountInput,
+  ): Promise<bigint> {
+    const assetPeriodSeconds = await this.getAssetSubscriptionDuration({ assetAddress });
+    return resolveSubscriptionCount(params, assetPeriodSeconds);
   }
 
   async getSubscriptionStatus(params: AccessCheckParams): Promise<SubscriptionStatus> {
@@ -223,9 +236,10 @@ export class OcrSdk {
       getRegistryAddress: () => this.Asset.getRegistryAddress({ assetAddress }),
       getTokenAddress: () => this.Asset.getTokenAddress({ assetAddress }),
       getSubscriptionDuration: () => this.Asset.getSubscriptionDuration({ assetAddress }),
-      getSubscriptionPrice: ({ count }) => this.Asset.getSubscriptionPrice({ assetAddress, count }),
-      getSubscriptionPriceAndDuration: ({ count }) =>
-        this.Asset.getSubscriptionPriceAndDuration({ assetAddress, count }),
+      getSubscriptionPrice: (params) => this.Asset.getSubscriptionPrice({ assetAddress, ...params }),
+      getSubscriptionPriceAndDuration: (params) =>
+        this.Asset.getSubscriptionPriceAndDuration({ assetAddress, ...params }),
+      getSubscriptionQuote: (params) => this.Asset.getSubscriptionQuote({ assetAddress, ...params }),
       getSubscription: ({ subscriberId, subscriberAddress }) =>
         this.Asset.getSubscription({ assetAddress, subscriberId, subscriberAddress }),
       getSubscriptionStatus: ({ subscriberId, user, source }) =>
@@ -644,26 +658,42 @@ export class OcrSdk {
     })) as bigint;
   }
 
-  async getAssetSubscriptionPrice(params: { assetAddress: Address; count: bigint }): Promise<bigint> {
+  async getAssetSubscriptionPrice(
+    params: { assetAddress: Address } & SubscriptionPeriodCountInput,
+  ): Promise<bigint> {
+    const count = await this.resolveAssetSubscriptionCount(params.assetAddress, params);
     return (await this.publicClient.readContract({
       address: params.assetAddress,
       abi: AssetABI,
       functionName: "getSubscriptionPrice",
-      args: [params.count],
+      args: [count],
     })) as bigint;
   }
 
-  async getAssetSubscriptionPriceAndDuration(params: {
-    assetAddress: Address;
-    count: bigint;
-  }): Promise<{ price: bigint; duration: bigint }> {
+  async getAssetSubscriptionPriceAndDuration(
+    params: { assetAddress: Address } & SubscriptionPeriodCountInput,
+  ): Promise<{ price: bigint; duration: bigint }> {
+    const count = await this.resolveAssetSubscriptionCount(params.assetAddress, params);
     const [price, duration] = (await this.publicClient.readContract({
       address: params.assetAddress,
       abi: AssetABI,
       functionName: "getSubscriptionPriceAndDuration",
-      args: [params.count],
+      args: [count],
     })) as [bigint, bigint];
     return { price, duration };
+  }
+
+  async getAssetSubscriptionQuote(
+    params: { assetAddress: Address } & SubscriptionPeriodCountInput,
+  ): Promise<{ count: bigint; price: bigint; duration: bigint }> {
+    const count = await this.resolveAssetSubscriptionCount(params.assetAddress, params);
+    const [price, duration] = (await this.publicClient.readContract({
+      address: params.assetAddress,
+      abi: AssetABI,
+      functionName: "getSubscriptionPriceAndDuration",
+      args: [count],
+    })) as [bigint, bigint];
+    return { count, price, duration };
   }
 
   async getAssetSubscription(params: {
@@ -759,19 +789,21 @@ export class OcrSdk {
     return this.getAssetOwner({ assetAddress: params.assetAddress });
   }
 
-  async subscribeToAsset(params: {
-    assetAddress: Address;
-    subscriberId: string;
-    subscriberAddress: Address;
-    payer: Address;
-    spender: Address;
-    count: bigint;
-    deadline: bigint;
-    v: number;
-    r: Hex;
-    s: Hex;
-  }) {
+  async subscribeToAsset(
+    params: {
+      assetAddress: Address;
+      subscriberId: string;
+      subscriberAddress: Address;
+      payer: Address;
+      spender: Address;
+      deadline: bigint;
+      v: number;
+      r: Hex;
+      s: Hex;
+    } & SubscriptionPeriodCountInput,
+  ) {
     const { walletClient, account } = this.getWalletContext();
+    const count = await this.resolveAssetSubscriptionCount(params.assetAddress, params);
     const sub = subscriberHash(params.subscriberId, params.subscriberAddress);
     return walletClient.writeContract({
       address: params.assetAddress,
@@ -779,7 +811,7 @@ export class OcrSdk {
       functionName: "subscribe",
       chain: walletClient.chain ?? null,
       account,
-      args: [sub, params.payer, params.spender, params.count, params.deadline, params.v, params.r, params.s],
+      args: [sub, params.payer, params.spender, count, params.deadline, params.v, params.r, params.s],
     });
   }
 

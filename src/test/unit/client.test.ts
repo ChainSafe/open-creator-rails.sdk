@@ -43,6 +43,31 @@ function createMockWalletClient(withAccount: boolean = true): WalletClient {
   } as unknown as WalletClient;
 }
 
+describe("OcrSdk constructor", () => {
+  it("requires chain id when indexerUrl is set without publicClient.chain", () => {
+    const publicClient = { readContract: vi.fn(), chain: undefined } as unknown as PublicClient;
+    expect(
+      () =>
+        new OcrSdk({
+          publicClient,
+          registryAddress: mockAddress(),
+          indexerUrl: "https://indexer.test",
+        }),
+    ).toThrow(/chain id/i);
+  });
+
+  it("accepts explicit chainId for indexer", () => {
+    const publicClient = { readContract: vi.fn(), chain: undefined } as unknown as PublicClient;
+    const sdk = new OcrSdk({
+      publicClient,
+      registryAddress: mockAddress(),
+      indexerUrl: "https://indexer.test",
+      chainId: 11155111,
+    });
+    expect(sdk.indexer).toBeDefined();
+  });
+});
+
 describe("OcrSdk.getSubscriptionStatus", () => {
   beforeEach(() => {
     vi.restoreAllMocks();
@@ -1280,6 +1305,188 @@ describe("OcrSdk full method coverage", () => {
     await sdk.Asset.getTokenAddress({ assetAddress });
     expect(publicClient.readContract).toHaveBeenLastCalledWith(
       expect.objectContaining({ address: assetAddress, functionName: "getTokenAddress" }),
+    );
+  });
+});
+
+describe("OcrSdk subscription period templates", () => {
+  beforeEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it("getAssetSubscriptionPrice uses period to derive on-chain period-count", async () => {
+    const publicClient = createMockPublicClient();
+    const sdk = new OcrSdk({
+      publicClient,
+      registryAddress: mockAddress("0xreg"),
+    });
+    const assetAddress = mockAddress("0xasset");
+
+    (publicClient.readContract as any)
+      .mockResolvedValueOnce(86_400n)
+      .mockResolvedValueOnce(9_999n);
+
+    const price = await sdk.Asset.getSubscriptionPrice({ assetAddress, period: "week" });
+
+    expect(price).toBe(9_999n);
+    expect(publicClient.readContract).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        address: assetAddress,
+        functionName: "getSubscriptionPrice",
+        args: [7n],
+      }),
+    );
+  });
+
+  it("getAsset bound client supports period on subscribe", async () => {
+    const publicClient = createMockPublicClient();
+    const walletClient = createMockWalletClient();
+    const sdk = new OcrSdk({
+      publicClient,
+      walletClient,
+      registryAddress: mockAddress("0xreg"),
+    });
+    const assetAddress = mockAddress("0xasset");
+    const user = mockAddress("0xuser");
+    const subHash = subscriberHash(TEST_SUBSCRIBER_ID, user);
+
+    (publicClient.readContract as any).mockResolvedValueOnce(86_400n);
+    (walletClient.writeContract as any).mockResolvedValue("0xtxhash");
+
+    const asset = sdk.getAsset({ assetAddress });
+    await asset.subscribe({
+      subscriberId: TEST_SUBSCRIBER_ID,
+      subscriberAddress: user,
+      payer: user,
+      spender: assetAddress,
+      period: "day",
+      deadline: 100n,
+      v: 27,
+      r: mockHex("0xr"),
+      s: mockHex("0xs"),
+    });
+
+    expect(walletClient.writeContract).toHaveBeenCalledWith(
+      expect.objectContaining({
+        address: assetAddress,
+        functionName: "subscribe",
+        args: [subHash, user, assetAddress, 1n, 100n, 27, mockHex("0xr"), mockHex("0xs")],
+      }),
+    );
+  });
+
+  it("subscribeToAsset resolves period to on-chain count", async () => {
+    const publicClient = createMockPublicClient();
+    const walletClient = createMockWalletClient();
+    const sdk = new OcrSdk({
+      publicClient,
+      walletClient,
+      registryAddress: mockAddress("0xreg"),
+    });
+    const assetAddress = mockAddress("0xasset");
+    const user = mockAddress("0xuser");
+    const subHash = subscriberHash(TEST_SUBSCRIBER_ID, user);
+
+    (publicClient.readContract as any).mockResolvedValueOnce(86_400n);
+    (walletClient.writeContract as any).mockResolvedValue("0xtxhash");
+
+    await sdk.subscribeToAsset({
+      assetAddress,
+      subscriberId: TEST_SUBSCRIBER_ID,
+      subscriberAddress: user,
+      payer: user,
+      spender: assetAddress,
+      period: "week",
+      deadline: 50n,
+      v: 27,
+      r: mockHex("0xr"),
+      s: mockHex("0xs"),
+    });
+
+    expect(walletClient.writeContract).toHaveBeenCalledWith(
+      expect.objectContaining({
+        functionName: "subscribe",
+        args: [subHash, user, assetAddress, 7n, 50n, 27, mockHex("0xr"), mockHex("0xs")],
+      }),
+    );
+  });
+
+  it("getSubscriptionQuote returns count, price, and duration", async () => {
+    const publicClient = createMockPublicClient();
+    const sdk = new OcrSdk({
+      publicClient,
+      registryAddress: mockAddress("0xreg"),
+    });
+    const assetAddress = mockAddress("0xasset");
+
+    (publicClient.readContract as any)
+      .mockResolvedValueOnce(86_400n)
+      .mockResolvedValueOnce([500n, 86_400n]);
+
+    const quote = await sdk.getAsset({ assetAddress }).getSubscriptionQuote({ period: "day" });
+
+    expect(quote).toEqual({ count: 1n, price: 500n, duration: 86_400n });
+  });
+
+  it("getAssetSubscriptionPriceAndDuration resolves period", async () => {
+    const publicClient = createMockPublicClient();
+    const sdk = new OcrSdk({
+      publicClient,
+      registryAddress: mockAddress("0xreg"),
+    });
+    const assetAddress = mockAddress("0xasset");
+
+    (publicClient.readContract as any)
+      .mockResolvedValueOnce(86_400n)
+      .mockResolvedValueOnce([900n, 604_800n]);
+
+    const res = await sdk.getAssetSubscriptionPriceAndDuration({
+      assetAddress,
+      period: "week",
+    });
+
+    expect(res).toEqual({ price: 900n, duration: 604_800n });
+    expect(publicClient.readContract).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        functionName: "getSubscriptionPriceAndDuration",
+        args: [7n],
+      }),
+    );
+  });
+});
+
+describe("OcrSdk batch and registry duration helpers", () => {
+  it("covers registry duration reads and batch fee claims", async () => {
+    const publicClient = createMockPublicClient();
+    const walletClient = createMockWalletClient();
+    const sdk = new OcrSdk({
+      publicClient,
+      walletClient,
+      registryAddress: mockAddress("0xreg"),
+    });
+
+    const assetId = mockHex("0xassetId");
+    const assetAddress = mockAddress("0xasset");
+    const subs = [subscriberHash(TEST_SUBSCRIBER_ID, mockAddress("0xu1"))];
+
+    (publicClient.readContract as any).mockResolvedValueOnce(120n);
+    expect(await sdk.getRegistrySubscriptionDuration({ assetId })).toBe(120n);
+
+    (publicClient.readContract as any).mockResolvedValueOnce([50n, 120n]);
+    expect(await sdk.getRegistrySubscriptionPriceAndDuration({ assetId, count: 2n })).toEqual({
+      price: 50n,
+      duration: 120n,
+    });
+
+    (walletClient.writeContract as any).mockResolvedValue("0xbatch");
+    await sdk.claimCreatorFeeBatch({ assetAddress, subscribers: subs });
+    expect(walletClient.writeContract).toHaveBeenLastCalledWith(
+      expect.objectContaining({ functionName: "claimCreatorFee", args: [subs] }),
+    );
+
+    await sdk.claimRegistryFeeBatchFromRegistry({ assetId, subscribers: subs });
+    expect(walletClient.writeContract).toHaveBeenLastCalledWith(
+      expect.objectContaining({ functionName: "claimRegistryFee", args: [assetId, subs] }),
     );
   });
 });
