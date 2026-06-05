@@ -19,6 +19,7 @@ export type IndexerSubscription = SubscriptionStatus & {
   assetAddress: Address;
   subscriberId: Hex;
   payer: Address;
+  isRevoked: boolean;
 };
 
 export type IndexerAssetEntity = {

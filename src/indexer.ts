@@ -65,6 +65,7 @@ export function createSdkIndexer(indexerUrl: string, options: CreateSdkIndexerOp
             endTime
             nonce
             isActive
+            isRevoked
             payer
           }
         }
@@ -99,6 +100,7 @@ export function createSdkIndexer(indexerUrl: string, options: CreateSdkIndexerOp
       subscriberId: subscriberHashHex,
       payer: item.payer ? asAddress(item.payer) : ("0x" + "0".repeat(40)) as Address,
       isActive: Boolean(item.isActive),
+      isRevoked: Boolean((item as any).isRevoked),
       startTime: BigInt(item.startTime),
       endTime: BigInt(item.endTime),
       nonce: BigInt(item.nonce),
@@ -190,6 +192,7 @@ export function createSdkIndexer(indexerUrl: string, options: CreateSdkIndexerOp
             endTime
             nonce
             isActive
+            isRevoked
           }
         }
       }
@@ -214,6 +217,7 @@ export function createSdkIndexer(indexerUrl: string, options: CreateSdkIndexerOp
       subscriberId: asHex(sub.subscriber),
       payer: asAddress(sub.payer),
       isActive: Boolean(sub.isActive),
+      isRevoked: Boolean(sub.isRevoked),
       startTime: BigInt(sub.startTime),
       endTime: BigInt(sub.endTime),
       nonce: BigInt(sub.nonce),
